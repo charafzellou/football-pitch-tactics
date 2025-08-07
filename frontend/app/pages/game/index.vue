@@ -18,10 +18,7 @@ async function playNextMatch() {
     <h1 class="text-2xl font-bold mb-4">
       Dashboard
     </h1>
-    <div
-      v-if="team"
-      class="grid grid-cols-1 md:grid-cols-2 gap-8"
-    >
+    <div v-if="team" class="grid grid-cols-1 md:grid-cols-2 gap-8">
       <UCard>
         <template #header>
           Club Status
@@ -30,7 +27,9 @@ async function playNextMatch() {
           League Position: <strong>TODO</strong>
         </p>
         <p>
-          Bank Balance: <strong>{{ new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(team.bankBalance) }}</strong>
+          Bank Balance: <strong>{{ new Intl.NumberFormat('en-US', {
+            style: 'currency', currency: 'USD'
+          }).format(team.bankBalance) }}</strong>
         </p>
       </UCard>
       <UCard v-if="nextMatch">
@@ -43,11 +42,7 @@ async function playNextMatch() {
         <p>
           Date: <strong>{{ new Date(nextMatch.matchDate).toLocaleDateString() }}</strong>
         </p>
-        <UButton
-          class="mt-4"
-          label="Play Next Match"
-          @click="playNextMatch"
-        />
+        <UButton class="mt-4" label="Play Next Match" @click="playNextMatch" />
       </UCard>
     </div>
   </div>

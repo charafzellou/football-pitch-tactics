@@ -12,11 +12,14 @@ const laLigaData = JSON.parse(
   readFileSync(join(__dirname, 'data/la-liga.json'), 'utf-8')
 )
 
-// Clear existing data
-await db.delete(schema.countries)
-await db.delete(schema.leagues)
-await db.delete(schema.teams)
+// Clear existing data in correct order (to avoid foreign key constraint issues)
+await db.delete(schema.matchEvents)
+await db.delete(schema.matches)
+await db.delete(schema.game)
 await db.delete(schema.players)
+await db.delete(schema.teams)
+await db.delete(schema.leagues)
+await db.delete(schema.countries)
 
 // Seed Countries
 const countryData = [{ name: 'England' }, { name: 'Spain' }]
@@ -90,12 +93,8 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
   }
 }
 
-// Generate a full season schedule for the first league (Premier League)
-const teamsInFirstLeague = await db.query.teams.findMany({
-  where: (teams, { eq }) => eq(teams.leagueId, seededLeagues[0].id),
-})
-
-const generateSchedule = (teams: (typeof teamsInFirstLeague)) => {
+// Generate a full season schedule for all leagues
+const generateSchedule = (teams: { id: number }[]) => {
   const schedule = []
   const numTeams = teams.length
   const halfNumTeams = numTeams / 2
@@ -133,9 +132,18 @@ const generateSchedule = (teams: (typeof teamsInFirstLeague)) => {
   return schedule
 }
 
-const schedule = generateSchedule(teamsInFirstLeague)
-if (schedule.length > 0) {
-  await db.insert(schema.matches).values(schedule)
+// Generate schedules for all leagues
+for (const league of seededLeagues) {
+  const teamsInLeague = await db.query.teams.findMany({
+    where: (teams, { eq }) => eq(teams.leagueId, league.id),
+  })
+
+  if (teamsInLeague.length > 0) {
+    const schedule = generateSchedule(teamsInLeague)
+    if (schedule.length > 0) {
+      await db.insert(schema.matches).values(schedule)
+    }
+  }
 }
 
 console.log('Database seeded successfully!')
