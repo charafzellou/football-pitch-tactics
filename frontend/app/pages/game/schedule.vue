@@ -2,10 +2,10 @@
 const { data: schedule } = useFetch('/api/schedule')
 
 const columns = [
-  { key: 'matchDate', label: 'Date', id: 'matchDate' },
-  { key: 'homeTeamId', label: 'Home Team', id: 'homeTeamId' },
-  { key: 'awayTeamId', label: 'Away Team', id: 'awayTeamId' },
-  { key: 'score', label: 'Score', id: 'score' },
+  { accessorKey: 'matchDate', header: 'Date', id: 'matchDate' },
+  { accessorKey: 'homeTeamId', header: 'Home Team', id: 'homeTeamId' },
+  { accessorKey: 'awayTeamId', header: 'Away Team', id: 'awayTeamId' },
+  { accessorKey: 'score', header: 'Score', id: 'score' },
 ]
 
 const formattedSchedule = computed(() =>
@@ -22,6 +22,6 @@ const formattedSchedule = computed(() =>
     <h1 class="text-2xl font-bold mb-4">
       Match Schedule
     </h1>
-    <UTable :rows="formattedSchedule" :columns="columns" />
+    <UTable :data="formattedSchedule" :columns="columns" />
   </div>
 </template>

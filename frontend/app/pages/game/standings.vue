@@ -8,15 +8,15 @@ const { data: standings } = useFetch(() => `/api/standings?leagueId=${team.value
 })
 
 const columns = [
-  { key: 'teamName', label: 'Team', id: 'teamName' },
-  { key: 'played', label: 'P', id: 'played' },
-  { key: 'wins', label: 'W', id: 'wins' },
-  { key: 'draws', label: 'D', id: 'draws' },
-  { key: 'losses', label: 'L', id: 'losses' },
-  { key: 'goalsFor', label: 'GF', id: 'goalsFor' },
-  { key: 'goalsAgainst', label: 'GA', id: 'goalsAgainst' },
-  { key: 'goalDifference', label: 'GD', id: 'goalDifference' },
-  { key: 'points', label: 'Pts', id: 'points' },
+  { accessorKey: 'teamName', header: 'Team', id: 'teamName' },
+  { accessorKey: 'played', header: 'P', id: 'played' },
+  { accessorKey: 'wins', header: 'W', id: 'wins' },
+  { accessorKey: 'draws', header: 'D', id: 'draws' },
+  { accessorKey: 'losses', header: 'L', id: 'losses' },
+  { accessorKey: 'goalsFor', header: 'GF', id: 'goalsFor' },
+  { accessorKey: 'goalsAgainst', header: 'GA', id: 'goalsAgainst' },
+  { accessorKey: 'goalDifference', header: 'GD', id: 'goalDifference' },
+  { accessorKey: 'points', header: 'Pts', id: 'points' },
 ]
 </script>
 
@@ -25,6 +25,6 @@ const columns = [
     <h1 class="text-2xl font-bold mb-4">
       League Standings
     </h1>
-    <UTable :rows="standings" :columns="columns" />
+    <UTable :data="standings" :columns="columns" />
   </div>
 </template>
