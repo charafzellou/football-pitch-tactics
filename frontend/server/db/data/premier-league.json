@@ -1,0 +1,428 @@
+{
+    "teams": [
+        "Arsenal",
+        "Aston Villa",
+        "Brighton & Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Sheffield United",
+        "Tottenham Hotspur",
+        "West Ham United",
+        "Wolverhampton Wanderers",
+        "Bournemouth",
+        "Brentford"
+    ],
+    "players": {
+        "Arsenal": [
+            {
+                "name": "Aaron Ramsdale",
+                "position": "Goalkeeper",
+                "age": 25,
+                "skillLevel": 82
+            },
+            {
+                "name": "David Raya",
+                "position": "Goalkeeper",
+                "age": 28,
+                "skillLevel": 84
+            },
+            {
+                "name": "William Saliba",
+                "position": "Defender",
+                "age": 23,
+                "skillLevel": 86
+            },
+            {
+                "name": "Gabriel Magalhaes",
+                "position": "Defender",
+                "age": 26,
+                "skillLevel": 84
+            },
+            {
+                "name": "Ben White",
+                "position": "Defender",
+                "age": 26,
+                "skillLevel": 83
+            },
+            {
+                "name": "Oleksandr Zinchenko",
+                "position": "Defender",
+                "age": 27,
+                "skillLevel": 81
+            },
+            {
+                "name": "Takehiro Tomiyasu",
+                "position": "Defender",
+                "age": 25,
+                "skillLevel": 80
+            },
+            {
+                "name": "Jurrien Timber",
+                "position": "Defender",
+                "age": 23,
+                "skillLevel": 82
+            },
+            {
+                "name": "Declan Rice",
+                "position": "Midfielder",
+                "age": 25,
+                "skillLevel": 87
+            },
+            {
+                "name": "Martin Odegaard",
+                "position": "Midfielder",
+                "age": 25,
+                "skillLevel": 88
+            },
+            {
+                "name": "Kai Havertz",
+                "position": "Midfielder",
+                "age": 25,
+                "skillLevel": 84
+            },
+            {
+                "name": "Thomas Partey",
+                "position": "Midfielder",
+                "age": 31,
+                "skillLevel": 83
+            },
+            {
+                "name": "Jorginho",
+                "position": "Midfielder",
+                "age": 32,
+                "skillLevel": 81
+            },
+            {
+                "name": "Emile Smith Rowe",
+                "position": "Midfielder",
+                "age": 24,
+                "skillLevel": 79
+            },
+            {
+                "name": "Bukayo Saka",
+                "position": "Forward",
+                "age": 23,
+                "skillLevel": 88
+            },
+            {
+                "name": "Gabriel Martinelli",
+                "position": "Forward",
+                "age": 23,
+                "skillLevel": 85
+            },
+            {
+                "name": "Gabriel Jesus",
+                "position": "Forward",
+                "age": 27,
+                "skillLevel": 84
+            },
+            {
+                "name": "Eddie Nketiah",
+                "position": "Forward",
+                "age": 25,
+                "skillLevel": 78
+            },
+            {
+                "name": "Leandro Trossard",
+                "position": "Forward",
+                "age": 29,
+                "skillLevel": 82
+            },
+            {
+                "name": "Fabio Vieira",
+                "position": "Midfielder",
+                "age": 24,
+                "skillLevel": 77
+            },
+            {
+                "name": "Jakub Kiwior",
+                "position": "Defender",
+                "age": 24,
+                "skillLevel": 76
+            },
+            {
+                "name": "Reiss Nelson",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 74
+            }
+        ],
+        "Manchester City": [
+            {
+                "name": "Ederson",
+                "position": "Goalkeeper",
+                "age": 30,
+                "skillLevel": 89
+            },
+            {
+                "name": "Stefan Ortega",
+                "position": "Goalkeeper",
+                "age": 31,
+                "skillLevel": 78
+            },
+            {
+                "name": "Ruben Dias",
+                "position": "Defender",
+                "age": 27,
+                "skillLevel": 90
+            },
+            {
+                "name": "John Stones",
+                "position": "Defender",
+                "age": 30,
+                "skillLevel": 87
+            },
+            {
+                "name": "Manuel Akanji",
+                "position": "Defender",
+                "age": 29,
+                "skillLevel": 85
+            },
+            {
+                "name": "Josko Gvardiol",
+                "position": "Defender",
+                "age": 22,
+                "skillLevel": 84
+            },
+            {
+                "name": "Kyle Walker",
+                "position": "Defender",
+                "age": 34,
+                "skillLevel": 84
+            },
+            {
+                "name": "Nathan Ake",
+                "position": "Defender",
+                "age": 29,
+                "skillLevel": 82
+            },
+            {
+                "name": "Rodri",
+                "position": "Midfielder",
+                "age": 28,
+                "skillLevel": 91
+            },
+            {
+                "name": "Kevin De Bruyne",
+                "position": "Midfielder",
+                "age": 33,
+                "skillLevel": 93
+            },
+            {
+                "name": "Bernardo Silva",
+                "position": "Midfielder",
+                "age": 30,
+                "skillLevel": 89
+            },
+            {
+                "name": "Phil Foden",
+                "position": "Midfielder",
+                "age": 24,
+                "skillLevel": 88
+            },
+            {
+                "name": "Mateo Kovacic",
+                "position": "Midfielder",
+                "age": 30,
+                "skillLevel": 85
+            },
+            {
+                "name": "Matheus Nunes",
+                "position": "Midfielder",
+                "age": 26,
+                "skillLevel": 79
+            },
+            {
+                "name": "Erling Haaland",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 94
+            },
+            {
+                "name": "Julian Alvarez",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 85
+            },
+            {
+                "name": "Jack Grealish",
+                "position": "Forward",
+                "age": 29,
+                "skillLevel": 84
+            },
+            {
+                "name": "Jeremy Doku",
+                "position": "Forward",
+                "age": 22,
+                "skillLevel": 82
+            },
+            {
+                "name": "Oscar Bobb",
+                "position": "Forward",
+                "age": 21,
+                "skillLevel": 76
+            },
+            {
+                "name": "Rico Lewis",
+                "position": "Defender",
+                "age": 19,
+                "skillLevel": 75
+            },
+            {
+                "name": "Sergio Gomez",
+                "position": "Defender",
+                "age": 24,
+                "skillLevel": 74
+            },
+            {
+                "name": "Kalvin Phillips",
+                "position": "Midfielder",
+                "age": 28,
+                "skillLevel": 77
+            }
+        ],
+        "Liverpool": [
+            {
+                "name": "Alisson Becker",
+                "position": "Goalkeeper",
+                "age": 31,
+                "skillLevel": 90
+            },
+            {
+                "name": "Caoimhin Kelleher",
+                "position": "Goalkeeper",
+                "age": 25,
+                "skillLevel": 79
+            },
+            {
+                "name": "Virgil van Dijk",
+                "position": "Defender",
+                "age": 33,
+                "skillLevel": 90
+            },
+            {
+                "name": "Ibrahima Konate",
+                "position": "Defender",
+                "age": 25,
+                "skillLevel": 85
+            },
+            {
+                "name": "Joel Matip",
+                "position": "Defender",
+                "age": 33,
+                "skillLevel": 83
+            },
+            {
+                "name": "Andrew Robertson",
+                "position": "Defender",
+                "age": 30,
+                "skillLevel": 86
+            },
+            {
+                "name": "Trent Alexander-Arnold",
+                "position": "Defender",
+                "age": 26,
+                "skillLevel": 87
+            },
+            {
+                "name": "Kostas Tsimikas",
+                "position": "Defender",
+                "age": 28,
+                "skillLevel": 78
+            },
+            {
+                "name": "Alexis Mac Allister",
+                "position": "Midfielder",
+                "age": 25,
+                "skillLevel": 84
+            },
+            {
+                "name": "Dominik Szoboszlai",
+                "position": "Midfielder",
+                "age": 24,
+                "skillLevel": 83
+            },
+            {
+                "name": "Ryan Gravenberch",
+                "position": "Midfielder",
+                "age": 22,
+                "skillLevel": 80
+            },
+            {
+                "name": "Wataru Endo",
+                "position": "Midfielder",
+                "age": 31,
+                "skillLevel": 79
+            },
+            {
+                "name": "Harvey Elliott",
+                "position": "Midfielder",
+                "age": 21,
+                "skillLevel": 77
+            },
+            {
+                "name": "Curtis Jones",
+                "position": "Midfielder",
+                "age": 23,
+                "skillLevel": 78
+            },
+            {
+                "name": "Mohamed Salah",
+                "position": "Forward",
+                "age": 32,
+                "skillLevel": 91
+            },
+            {
+                "name": "Darwin Nunez",
+                "position": "Forward",
+                "age": 25,
+                "skillLevel": 84
+            },
+            {
+                "name": "Luis Diaz",
+                "position": "Forward",
+                "age": 27,
+                "skillLevel": 85
+            },
+            {
+                "name": "Diogo Jota",
+                "position": "Forward",
+                "age": 28,
+                "skillLevel": 84
+            },
+            {
+                "name": "Cody Gakpo",
+                "position": "Forward",
+                "age": 25,
+                "skillLevel": 82
+            },
+            {
+                "name": "Conor Bradley",
+                "position": "Defender",
+                "age": 21,
+                "skillLevel": 74
+            },
+            {
+                "name": "Jarell Quansah",
+                "position": "Defender",
+                "age": 21,
+                "skillLevel": 73
+            },
+            {
+                "name": "Bobby Clark",
+                "position": "Midfielder",
+                "age": 19,
+                "skillLevel": 70
+            }
+        ]
+    }
+}

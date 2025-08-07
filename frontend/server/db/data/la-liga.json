@@ -1,0 +1,294 @@
+{
+    "teams": [
+        "Real Madrid",
+        "Barcelona",
+        "Atletico Madrid",
+        "Real Sociedad",
+        "Villarreal",
+        "Real Betis",
+        "Athletic Bilbao",
+        "Valencia",
+        "Getafe",
+        "Girona",
+        "Sevilla",
+        "Osasuna",
+        "Las Palmas",
+        "Rayo Vallecano",
+        "Mallorca",
+        "Cadiz",
+        "Celta Vigo",
+        "Alaves",
+        "Granada",
+        "Almeria"
+    ],
+    "players": {
+        "Real Madrid": [
+            {
+                "name": "Thibaut Courtois",
+                "position": "Goalkeeper",
+                "age": 32,
+                "skillLevel": 89
+            },
+            {
+                "name": "Andriy Lunin",
+                "position": "Goalkeeper",
+                "age": 25,
+                "skillLevel": 80
+            },
+            {
+                "name": "Antonio Rudiger",
+                "position": "Defender",
+                "age": 31,
+                "skillLevel": 86
+            },
+            {
+                "name": "Eder Militao",
+                "position": "Defender",
+                "age": 26,
+                "skillLevel": 85
+            },
+            {
+                "name": "David Alaba",
+                "position": "Defender",
+                "age": 32,
+                "skillLevel": 86
+            },
+            {
+                "name": "Dani Carvajal",
+                "position": "Defender",
+                "age": 32,
+                "skillLevel": 84
+            },
+            {
+                "name": "Ferland Mendy",
+                "position": "Defender",
+                "age": 29,
+                "skillLevel": 82
+            },
+            {
+                "name": "Nacho Fernandez",
+                "position": "Defender",
+                "age": 34,
+                "skillLevel": 81
+            },
+            {
+                "name": "Jude Bellingham",
+                "position": "Midfielder",
+                "age": 21,
+                "skillLevel": 88
+            },
+            {
+                "name": "Luka Modric",
+                "position": "Midfielder",
+                "age": 39,
+                "skillLevel": 87
+            },
+            {
+                "name": "Toni Kroos",
+                "position": "Midfielder",
+                "age": 34,
+                "skillLevel": 88
+            },
+            {
+                "name": "Federico Valverde",
+                "position": "Midfielder",
+                "age": 26,
+                "skillLevel": 86
+            },
+            {
+                "name": "Eduardo Camavinga",
+                "position": "Midfielder",
+                "age": 22,
+                "skillLevel": 83
+            },
+            {
+                "name": "Aurelien Tchouameni",
+                "position": "Midfielder",
+                "age": 24,
+                "skillLevel": 84
+            },
+            {
+                "name": "Kylian Mbappe",
+                "position": "Forward",
+                "age": 26,
+                "skillLevel": 95
+            },
+            {
+                "name": "Vinicius Junior",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 90
+            },
+            {
+                "name": "Rodrygo",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 85
+            },
+            {
+                "name": "Endrick",
+                "position": "Forward",
+                "age": 18,
+                "skillLevel": 78
+            },
+            {
+                "name": "Brahim Diaz",
+                "position": "Forward",
+                "age": 25,
+                "skillLevel": 81
+            },
+            {
+                "name": "Lucas Vazquez",
+                "position": "Defender",
+                "age": 33,
+                "skillLevel": 79
+            },
+            {
+                "name": "Dani Ceballos",
+                "position": "Midfielder",
+                "age": 28,
+                "skillLevel": 78
+            },
+            {
+                "name": "Fran Garcia",
+                "position": "Defender",
+                "age": 25,
+                "skillLevel": 76
+            }
+        ],
+        "Barcelona": [
+            {
+                "name": "Marc-Andre ter Stegen",
+                "position": "Goalkeeper",
+                "age": 32,
+                "skillLevel": 87
+            },
+            {
+                "name": "Inaki Pena",
+                "position": "Goalkeeper",
+                "age": 25,
+                "skillLevel": 76
+            },
+            {
+                "name": "Jules Kounde",
+                "position": "Defender",
+                "age": 26,
+                "skillLevel": 85
+            },
+            {
+                "name": "Ronald Araujo",
+                "position": "Defender",
+                "age": 25,
+                "skillLevel": 84
+            },
+            {
+                "name": "Andreas Christensen",
+                "position": "Defender",
+                "age": 28,
+                "skillLevel": 82
+            },
+            {
+                "name": "Alejandro Balde",
+                "position": "Defender",
+                "age": 21,
+                "skillLevel": 81
+            },
+            {
+                "name": "Joao Cancelo",
+                "position": "Defender",
+                "age": 30,
+                "skillLevel": 84
+            },
+            {
+                "name": "Inigo Martinez",
+                "position": "Defender",
+                "age": 33,
+                "skillLevel": 80
+            },
+            {
+                "name": "Pedri",
+                "position": "Midfielder",
+                "age": 22,
+                "skillLevel": 87
+            },
+            {
+                "name": "Gavi",
+                "position": "Midfielder",
+                "age": 20,
+                "skillLevel": 83
+            },
+            {
+                "name": "Frenkie de Jong",
+                "position": "Midfielder",
+                "age": 27,
+                "skillLevel": 86
+            },
+            {
+                "name": "Ilkay Gundogan",
+                "position": "Midfielder",
+                "age": 34,
+                "skillLevel": 85
+            },
+            {
+                "name": "Fermin Lopez",
+                "position": "Midfielder",
+                "age": 21,
+                "skillLevel": 78
+            },
+            {
+                "name": "Marc Casado",
+                "position": "Midfielder",
+                "age": 21,
+                "skillLevel": 75
+            },
+            {
+                "name": "Robert Lewandowski",
+                "position": "Forward",
+                "age": 36,
+                "skillLevel": 88
+            },
+            {
+                "name": "Lamine Yamal",
+                "position": "Forward",
+                "age": 17,
+                "skillLevel": 82
+            },
+            {
+                "name": "Raphinha",
+                "position": "Forward",
+                "age": 28,
+                "skillLevel": 83
+            },
+            {
+                "name": "Ferran Torres",
+                "position": "Forward",
+                "age": 24,
+                "skillLevel": 81
+            },
+            {
+                "name": "Ansu Fati",
+                "position": "Forward",
+                "age": 22,
+                "skillLevel": 80
+            },
+            {
+                "name": "Pau Victor",
+                "position": "Forward",
+                "age": 18,
+                "skillLevel": 72
+            },
+            {
+                "name": "Sergi Roberto",
+                "position": "Midfielder",
+                "age": 32,
+                "skillLevel": 78
+            },
+            {
+                "name": "Eric Garcia",
+                "position": "Defender",
+                "age": 24,
+                "skillLevel": 77
+            }
+        ]
+    }
+}

@@ -1,6 +1,16 @@
 import { db } from './index'
 import * as schema from './schema'
 import { faker } from '@faker-js/faker'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+// Load league data from JSON files
+const premierLeagueData = JSON.parse(
+  readFileSync(join(__dirname, 'data/premier-league.json'), 'utf-8')
+)
+const laLigaData = JSON.parse(
+  readFileSync(join(__dirname, 'data/la-liga.json'), 'utf-8')
+)
 
 // Clear existing data
 await db.delete(schema.countries)
@@ -26,34 +36,61 @@ const seededLeagues = await db
   .returning()
 
 // Seed Teams and Players
-for (const league of seededLeagues) {
-  for (let i = 0; i < 20; i++) {
+for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
+  const league = seededLeagues[leagueIndex]
+  const leagueData = leagueIndex === 0 ? premierLeagueData : laLigaData
+  const teamNames = leagueData.teams
+  const playersData = leagueData.players
+  
+  for (let i = 0; i < teamNames.length; i++) {
+    const teamName = teamNames[i]
     const team = await db
       .insert(schema.teams)
       .values({
-        name: faker.company.name(),
+        name: teamName,
         leagueId: league.id,
         bankBalance: faker.number.int({ min: 1000000, max: 50000000 }),
       })
       .returning()
 
-    for (let j = 0; j < 22; j++) {
-      await db.insert(schema.players).values({
-        name: faker.person.fullName(),
-        age: faker.number.int({ min: 18, max: 35 }),
-        position: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'][
-          faker.number.int({ min: 0, max: 3 })
-        ],
-        skillLevel: faker.number.int({ min: 60, max: 90 }),
-        stamina: 100,
-        marketValue: faker.number.int({ min: 100000, max: 20000000 }),
-        teamId: team[0].id,
-      })
+    // Use real players if available, otherwise generate fake ones
+    const teamPlayers = playersData[teamName]
+    if (teamPlayers && teamPlayers.length > 0) {
+      // Insert real players
+      for (const playerData of teamPlayers) {
+        await db.insert(schema.players).values({
+          name: playerData.name,
+          age: playerData.age,
+          position: playerData.position,
+          skillLevel: playerData.skillLevel,
+          stamina: 100,
+          marketValue: faker.number.int({ 
+            min: playerData.skillLevel * 100000, 
+            max: playerData.skillLevel * 500000 
+          }),
+          teamId: team[0].id,
+        })
+      }
+    } else {
+      // Generate fake players for teams without real data
+      for (let j = 0; j < 22; j++) {
+        await db.insert(schema.players).values({
+          name: faker.person.fullName(),
+          age: faker.number.int({ min: 18, max: 35 }),
+          position: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'][
+            faker.number.int({ min: 0, max: 3 })
+          ],
+          skillLevel: faker.number.int({ min: 60, max: 90 }),
+          stamina: 100,
+          marketValue: faker.number.int({ min: 100000, max: 20000000 }),
+          teamId: team[0].id,
+        })
+      }
     }
   }
 }
 
-// Generate a full season schedule for the first league
+// Generate a full season schedule for the first league (Premier League)
 const teamsInFirstLeague = await db.query.teams.findMany({
   where: (teams, { eq }) => eq(teams.leagueId, seededLeagues[0].id),
 })
