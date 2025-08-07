@@ -1,8 +1,7 @@
 // @ts-check
-import withNuxt from './.nuxt/eslint.config.mjs'
 import prettier from 'eslint-plugin-prettier'
 
-export default withNuxt({
+export default ({
   plugins: {
     prettier,
   },
