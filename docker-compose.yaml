@@ -1,0 +1,38 @@
+services:
+  nginx:
+    image: nginx:1.29.0-alpine
+    depends_on:
+      - app
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/ssl/football-pitch-tactics.com/:/etc/letsencrypt/live/football-pitch-tactics.com/
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    command: ["bun", "run", "dev"]
+    ports:
+      - "3000:3000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    command: ["bun", "run", "dev:socket"]
+    ports:
+      - "3001:3001"
+    environment:
+      - HOST=0.0.0.0
+      - SOCKET_PORT=3001
+
+networks:
+  default:
+    name: football-pitch-tactics

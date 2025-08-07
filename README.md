@@ -79,4 +79,4 @@ To set up the development environment, follow these steps:
    bun run dev
    ```
 
-5. Open your browser and navigate to `http://localhost:3000` to see the application in action.
+5. Open your browser and navigate to `http://localhost:8080` to see the application in action.
