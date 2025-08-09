@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
-const selectedCountry = ref<number | null>(null)
-const selectedLeague = ref<number | null>(null)
-const selectedTeam = ref<number | null>(null)
+const selectedCountry = ref<number>()
+const selectedLeague = ref<number>()
+const selectedTeam = ref<number>()
 
 const { data: countries } = useFetch('/api/countries')
 const { data: leagues, pending: leaguesPending, refresh: refreshLeagues } = useFetch(
@@ -17,13 +17,13 @@ const { data: teams, pending: teamsPending, refresh: refreshTeams } = useFetch(
 
 watch(selectedCountry, () => {
   console.log('Selected country changed:', selectedCountry.value)
-  selectedLeague.value = null
-  selectedTeam.value = null
+  selectedLeague.value = 0
+  selectedTeam.value = 0
   if (selectedCountry.value) refreshLeagues()
 })
 
 watch(selectedLeague, () => {
-  selectedTeam.value = null
+  selectedTeam.value = 0
   if (selectedLeague.value) refreshTeams()
 })
 

@@ -13,7 +13,3 @@
     />
   </div>
 </template>
-
-<script setup lang="ts">
-const { data: countries } = useFetch('/api/countries')
-</script>
