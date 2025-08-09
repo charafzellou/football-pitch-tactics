@@ -15,7 +15,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "bun run server/db/seed.ts"
   },
-  "dependencies": {
+  "devDependencies": {
     "@iconify-json/lucide": "^1.2.61",
     "@iconify-json/simple-icons": "^1.2.46",
     "@libsql/client": "^0.15.10",
@@ -24,9 +24,7 @@
     "drizzle-orm": "^0.44.4",
     "nuxt": "^4.0.3",
     "pinia": "^3.0.3",
-    "vue-router": "^4.5.1"
-  },
-  "devDependencies": {
+    "vue-router": "^4.5.1",
     "@faker-js/faker": "^9.9.0",
     "@iconify-json/heroicons": "^1.2.2",
     "@nuxt/eslint": "^1.8.0",

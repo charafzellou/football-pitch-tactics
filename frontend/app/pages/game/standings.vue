@@ -4,8 +4,17 @@ const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
 })
-const { data: standings, refresh: refreshStandings } = useFetch(() => `/api/standings?leagueId=${team.value?.leagueId}`, {
-  immediate: !!team.value?.leagueId,
+
+const leagueId = computed(() => team.value?.leagueId)
+const { data: standings, refresh: refreshStandings } = useFetch<{ [key: string]: any }[]>(
+  () => leagueId.value ? `/api/standings?leagueId=${leagueId.value}` : '',
+  {
+    immediate: false,
+  }
+)
+
+watch(leagueId, (val) => {
+  if (val) refreshStandings()
 })
 
 onMounted(async () => {

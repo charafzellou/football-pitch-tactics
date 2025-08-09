@@ -5,7 +5,6 @@ import { USeparator } from '#components';
 const links = [
   { label: 'Dashboard', to: '/game' },
   { label: 'Team', to: '/game/team' },
-  { label: 'Tactics', to: '/game/tactics' },
   { label: 'Schedule', to: '/game/schedule' },
   { label: 'Standings', to: '/game/standings' },
   { label: 'Transfers', to: '/game/transfers' },
@@ -20,7 +19,7 @@ const links = [
     </h2>
     <USeparator />
     <nav class="flex flex-col space-y-2">
-      <UButton v-for="link in links" :key="link.to" :to="link.to" color="gray" variant="ghost" class="justify-start">
+      <UButton v-for="link in links" :key="link.to" :to="link.to" color="primary" variant="ghost" class="justify-start">
         {{ link.label }}
       </UButton>
     </nav>

@@ -15,6 +15,13 @@
       "when": 1754599607419,
       "tag": "0001_natural_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1754745446999,
+      "tag": "0002_groovy_luke_cage",
+      "breakpoints": true
     }
   ]
 }

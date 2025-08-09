@@ -25,6 +25,7 @@ setup:
 	@echo "Setting up the project..."
 	@curl -fsSL https://bun.sh/install | bash
 	@bun install --cwd frontend/
+	@rm -f frontend/db.sqlite
 	@bun run --cwd frontend/ db:setup
 
 ##########################################

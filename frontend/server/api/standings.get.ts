@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     leagueTeams.map(async (team) => {
       const playedMatches = await db.query.matches.findMany({
         where: and(
-          eq(matches.season, '2024/2025'),
+          eq(matches.season, 1), // Assuming season is 1 for simplicity
           or(eq(matches.homeTeamId, team.id), eq(matches.awayTeamId, team.id)),
           isNotNull(matches.homeScore),
         ),

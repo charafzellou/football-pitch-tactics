@@ -15,7 +15,9 @@ const laLigaData = JSON.parse(
 // Clear existing data in correct order (to avoid foreign key constraint issues)
 await db.delete(schema.matchEvents)
 await db.delete(schema.matches)
+await db.delete(schema.eventType)
 await db.delete(schema.game)
+await db.delete(schema.season)
 await db.delete(schema.players)
 await db.delete(schema.teams)
 await db.delete(schema.leagues)
@@ -38,13 +40,35 @@ const seededLeagues = await db
   .values(leagueData)
   .returning()
 
+// Seed 5 playable Seasons
+const seasonData = []
+for (let year = 2024; year <= 2030; year++) {
+  seasonData.push({ year: year.toString(), ended: 'false' })
+}
+await db
+  .insert(schema.season)
+  .values(seasonData)
+  .returning()
+
+// Seed player positions
+const positionData = [
+  { name: 'GK' },
+  { name: 'DEF' },
+  { name: 'MID' },
+  { name: 'ATT' },
+]
+await db
+  .insert(schema.positions)
+  .values(positionData)
+  .returning()
+
 // Seed Teams and Players
 for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
   const league = seededLeagues[leagueIndex]
   const leagueData = leagueIndex === 0 ? premierLeagueData : laLigaData
   const teamNames = leagueData.teams
   const playersData = leagueData.players
-  
+
   for (let i = 0; i < teamNames.length; i++) {
     const teamName = teamNames[i]
     const team = await db
@@ -67,9 +91,9 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
           position: playerData.position,
           skillLevel: playerData.skillLevel,
           stamina: 100,
-          marketValue: faker.number.int({ 
-            min: playerData.skillLevel * 100000, 
-            max: playerData.skillLevel * 500000 
+          marketValue: faker.number.int({
+            min: playerData.skillLevel * 50000,
+            max: playerData.skillLevel * 250000
           }),
           teamId: team[0].id,
         })
@@ -80,10 +104,10 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
         await db.insert(schema.players).values({
           name: faker.person.fullName(),
           age: faker.number.int({ min: 18, max: 35 }),
-          position: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'][
+          position: ['GK', 'DEF', 'MID', 'ATT'][
             faker.number.int({ min: 0, max: 3 })
           ],
-          skillLevel: faker.number.int({ min: 60, max: 90 }),
+          skillLevel: faker.number.int({ min: 50, max: 79 }),
           stamina: 100,
           marketValue: faker.number.int({ min: 100000, max: 20000000 }),
           teamId: team[0].id,
@@ -111,7 +135,7 @@ const generateSchedule = (teams: { id: number }[]) => {
         schedule.push({
           homeTeamId,
           awayTeamId,
-          season: '2024/2025',
+          season: 1,
           matchDate: faker.date.future(),
         })
       }
@@ -119,7 +143,7 @@ const generateSchedule = (teams: { id: number }[]) => {
         schedule.push({
           homeTeamId: awayTeamId,
           awayTeamId: homeTeamId,
-          season: '2024/2025',
+          season: 1,
           matchDate: faker.date.future(),
         })
       }

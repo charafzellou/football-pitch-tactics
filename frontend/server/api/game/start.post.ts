@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
     .insert(game)
     .values({
       playerTeamId: teamId,
-      season: '2024/2025',
+      season: 1,
       currentDate: new Date(),
     })
     .returning()

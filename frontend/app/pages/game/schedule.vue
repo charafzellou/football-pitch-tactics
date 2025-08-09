@@ -1,22 +1,39 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
+
 const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
+const { data: teams, refresh: refreshTeams } = useFetch('/api/teams')
 
 onMounted(async () => {
-  await refreshSchedule()
+  await Promise.all([
+    refreshSchedule(),
+    refreshTeams(),
+  ])
 })
 
 const columns = [
   { accessorKey: 'matchDate', header: 'Date', id: 'matchDate' },
-  { accessorKey: 'homeTeamId', header: 'Home Team', id: 'homeTeamId' },
-  { accessorKey: 'awayTeamId', header: 'Away Team', id: 'awayTeamId' },
+  { accessorKey: 'homeTeam', header: 'Home Team', id: 'homeTeam' },
+  { accessorKey: 'awayTeam', header: 'Away Team', id: 'awayTeam' },
   { accessorKey: 'score', header: 'Score', id: 'score' },
 ]
+
+const teamMap = computed(() => {
+  const map: Record<number, string> = {};
+  if (teams.value) {
+    for (const team of teams.value) {
+      map[team.id] = team.name;
+    }
+  }
+  return map;
+})
 
 const formattedSchedule = computed(() =>
   schedule.value?.map(match => ({
     ...match,
     matchDate: new Date(match.matchDate).toLocaleDateString(),
+    homeTeam: teamMap.value[match.homeTeamId] || match.homeTeamId,
+    awayTeam: teamMap.value[match.awayTeamId] || match.awayTeamId,
     score: match.homeScore !== null ? `${match.homeScore} - ${match.awayScore}` : 'TBD',
   })),
 )

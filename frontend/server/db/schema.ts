@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * Represents the `countries` table in the database.
@@ -36,6 +36,16 @@ export const teams = sqliteTable('teams', {
 })
 
 /**
+ * Represents the `positions` table in the database.
+ * This table stores all possible player positions.
+ */
+
+export const positions = sqliteTable('positions', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull().unique(),
+})
+
+/**
  * Represents the `players` table in the database.
  * Each player belongs to a team and has various attributes.
  */
@@ -52,6 +62,26 @@ export const players = sqliteTable('players', {
     .references(() => teams.id),
 })
 
+
+/**
+ * Represents the `season` table in the database.
+ * This table stores information about each season in the game.
+ */
+export const season = sqliteTable('season', {
+  id: integer('id').primaryKey(),
+  year: text('year').notNull(),
+  ended: text('ended').notNull().default('false'),
+})
+
+/**
+ * Represents the `eventTypes` table in the database.
+ * This table stores information about the types of events that can occur in a match.
+ */
+export const eventType = sqliteTable('event_type', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+})
+
 /**
  * Represents the `game` table in the database.
  * This table stores the state of a single-player game.
@@ -61,7 +91,7 @@ export const game = sqliteTable('game', {
   playerTeamId: integer('player_team_id')
     .notNull()
     .references(() => teams.id),
-  season: text('season').notNull(),
+  season: integer('season').notNull().references(() => season.id),
   currentDate: integer('current_date', { mode: 'timestamp' }).notNull(),
 })
 
@@ -79,7 +109,7 @@ export const matches = sqliteTable('matches', {
     .references(() => teams.id),
   homeScore: integer('home_score'),
   awayScore: integer('away_score'),
-  season: text('season').notNull(),
+  season: integer('season').notNull().references(() => season.id),
   matchDate: integer('match_date', { mode: 'timestamp' }).notNull(),
 })
 
@@ -93,7 +123,7 @@ export const matchEvents = sqliteTable('match_events', {
     .notNull()
     .references(() => matches.id),
   minute: integer('minute').notNull(),
-  eventType: text('event_type').notNull(),
+  eventType: integer('event_type').notNull().references(() => eventType.id),
   playerId: integer('player_id').references(() => players.id),
   teamId: integer('team_id')
     .notNull()
