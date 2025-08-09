@@ -1,9 +1,10 @@
 <script setup lang="ts">
-const { data: gameState } = useFetch('/api/game/state')
-const { data: team } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
+import { onMounted } from 'vue'
+const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
+const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
 })
-const { data: schedule } = useFetch('/api/schedule')
+const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
 
 const nextMatch = computed(() => schedule.value?.[0])
 
@@ -11,6 +12,12 @@ async function playNextMatch() {
   // Placeholder for match simulation
   alert('Simulating next match...')
 }
+
+onMounted(async () => {
+  await refreshGameState()
+  await refreshTeam()
+  await refreshSchedule()
+})
 </script>
 
 <template>

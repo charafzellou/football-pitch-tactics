@@ -1,5 +1,10 @@
 <script setup lang="ts">
-const { data: schedule } = useFetch('/api/schedule')
+import { onMounted } from 'vue'
+const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
+
+onMounted(async () => {
+  await refreshSchedule()
+})
 
 const columns = [
   { accessorKey: 'matchDate', header: 'Date', id: 'matchDate' },

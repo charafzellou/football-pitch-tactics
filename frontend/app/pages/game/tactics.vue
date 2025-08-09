@@ -1,5 +1,6 @@
 <script setup lang="ts">
-const { data: gameState } = useFetch('/api/game/state')
+import { onMounted } from 'vue'
+const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
 })
@@ -21,6 +22,11 @@ async function saveTactics() {
   refreshTeam()
   // Add toast notification
 }
+
+onMounted(async () => {
+  await refreshGameState()
+  await refreshTeam()
+})
 </script>
 
 <template>

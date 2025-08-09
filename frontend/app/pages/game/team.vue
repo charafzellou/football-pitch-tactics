@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { UButton, UDropdownMenu } from '#components'
-
-const { data: gameState } = useFetch('/api/game/state')
-const { data: team } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
+import { onMounted } from 'vue'
+const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
+const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
 })
 
@@ -70,6 +70,11 @@ function getRowItems(row: any) {
     }
   ]
 }
+
+onMounted(async () => {
+  await refreshGameState()
+  await refreshTeam()
+})
 
 </script>
 
