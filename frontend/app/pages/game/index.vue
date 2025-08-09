@@ -29,7 +29,7 @@ async function playNextMatch() {
         <p>
           Bank Balance: <strong>{{ new Intl.NumberFormat('en-US', {
             style: 'currency', currency: 'USD'
-          }).format(team.bankBalance) }}</strong>
+          }).format(team.bankBalance ?? 0) }}</strong>
         </p>
       </UCard>
       <UCard v-if="nextMatch">

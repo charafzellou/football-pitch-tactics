@@ -10,9 +10,10 @@
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "db:setup": "bun run db:migrate && bun run db:push && bun run db:seed",
     "db:migrate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "setup:db": "bun run server/db/seed.ts"
+    "db:seed": "bun run server/db/seed.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.61",

@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+include .env
 
 help:
 	@echo "FOOTBALL PITCH TACTICS - Available commands:"
@@ -24,6 +25,7 @@ setup:
 	@echo "Setting up the project..."
 	@curl -fsSL https://bun.sh/install | bash
 	@bun install --cwd frontend/
+	@bun run --cwd frontend/ db:setup
 
 ##########################################
 

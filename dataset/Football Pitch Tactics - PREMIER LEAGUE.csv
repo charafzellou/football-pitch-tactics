@@ -1,0 +1,530 @@
+PLAYER NAME,TEAMS,COUNTRY,AGE,POSITION,ROLE,RATING,SPEED,SHOOTING,PASSING,DRIBBLING,DEFENCE,FREEKICK
+Alison Becker,Liverpool,Brazil,32,GK,GK,89,86,85,85,89,56,90
+Giorgi Mamardashvili,Liverpool,Georgia,24,GK,GK,85,86,83,72,85,48,85
+Ibrahima Konate,Liverpool,France,26,DEF,STP,83,75,34,59,68,83,84
+Virgil Van Dijk,Liverpool,Holland,34,DEF,STP,89,78,60,71,71,89,86
+Joe Gomez,Liverpool,England,28,DEF,STP,80,82,28,71,72,80,79
+Milos Kerkez,Liverpool,Hungary,21,DEF,LB,77,83,55,70,75,70,75
+Konstantinos Tsimikas,Liverpool,Greece,29,DEF,LB,77,80,57,74,75,73,78
+Andrew Robertson,Liverpool,Scotland,31,DEF,LB,85,78,61,82,79,81,78
+Jeremie Frimpong,Liverpool,Holland,24,DEF,RWB,84,93,62,75,86,75,69
+Conor Bradley,Liverpool,Northern Ireland,22,DEF,RB,75,82,59,66,73,70,72
+Ryan Gravenberch,Liverpool,Holland,23,MID,CM,78,71,76,77,81,68,73
+Stefan Bajcetic,Liverpool,Spain,20,MID,CM,72,66,52,66,72,69,66
+Wataru Endo,Liverpool,Japan,32,MID,CDM,80,60,68,71,78,79,76
+Tyler Morton,Liverpool,England,22,MID,CDM,72,64,59,74,73,66,66
+Alexis Mac Allister,Liverpool,Argentina,26,MID,CM,86,69,87,82,88,45,75
+Curtis Jones,Liverpool,England,24,MID,CM,79,68,71,75,81,70,75
+Florian Wirtz,Liverpool,Germany,22,MID,CMM,88,81,78,87,89,50,67
+Dominik Szoboszlai,Liverpool,Hungary,24,MID,CMM,81,82,80,84,80,59,70
+Harvey Elliott,Liverpool,England,22,MID,CMM,78,74,71,77,81,53,50
+Luis Diaz,Liverpool,Colombia,28,ATT,LW,84,90,80,75,87,39,75
+Cody Gakpo,Liverpool,Holland,26,ATT,SNT,83,82,83,78,83,48,75
+Mohamed Salah,Liverpool,Egypt,33,ATT,RW,89,89,87,82,88,45,75
+Federico Chiesa,Liverpool,Italy,27,ATT,LW,84,93,83,76,86,52,75
+Darwin Nunez,Liverpool,Uruguay,26,ATT,SNT,82,90,80,72,78,46,86
+Hugo Ekitike,Liverpool,France,23,ATT,SNT,76,84,75,61,77,25,67
+David Raya,Arsenal,Spain,29,GK,GK,83,82,81,86,82,57,81
+Kepa Arrizabalaga,Arsenal,Spain,30,GK,GK,79,78,77,83,82,40,77
+William Saliba,Arsenal,France,24,DEF,STP,87,82,39,70,74,87,83
+Gabriel Magalhaes,Arsenal,Brazil,27,DEF,STP,86,69,41,63,61,86,82
+Jakub Kiwior,Arsenal,Poland,25,DEF,LB,76,69,37,66,63,77,77
+Myles Lewis-Skelly,Arsenal,England,18,DEF,LB,58,63,48,58,61,52,59
+Riccardo Calafiori,Arsenal,Italy,23,DEF,LB,78,69,65,70,72,78,77
+Oleksandr Zinchenko,Arsenal,Ukraine,28,DEF,LB,79,66,66,83,82,76,69
+Jurrien Timber,Arsenal,Holland,24,DEF,RB,79,78,47,67,76,80,78
+Ben White,Arsenal,England,27,DEF,RB,84,73,35,77,78,83,80
+Martin Zubimendi,Arsenal,Spain,26,MID,CDM,81,64,67,75,77,78,71
+Christian Norgaard,Arsenal,Denmark,31,MID,CDM,77,52,60,70,69,76,78
+Declan Rice,Arsenal,England,26,MID,CM,87,73,72,82,79,84,85
+Mikel Merino,Arsenal,Spain,29,MID,CM,85,72,79,82,82,83,82
+Albert Sambi Lokonga,Arsenal,Belgium,25,MID,CM,75,64,58,74,76,68,71
+Martin Odegaard,Arsenal,Norway,26,MID,CMM,89,70,82,89,89,67,66
+Fabio Vieira,Arsenal,Portugal,25,MID,CMM,77,71,72,78,78,51,53
+Gabriel Martinelli,Arsenal,Brazil,24,ATT,LW,83,89,78,75,85,46,72
+Leandro Trossard,Arsenal,Belgium,30,ATT,LW,83,82,81,80,85,30,61
+Bukayo Saka,Arsenal,England,23,ATT,RW,87,85,83,81,88,60,70
+Ethan Nwaneri,Arsenal,England,18,ATT,RW,64,68,62,62,67,39,50
+Reiss Nelson,Arsenal,England,25,ATT,RW,75,85,67,71,78,36,55
+Noni Madueke,Arsenal,England,23,ATT,RW,78,90,72,72,82,38,67
+Viktor Gyokeres,Arsenal,Sweden,27,ATT,SNT,84,90,83,67,80,36,91
+Kai Havertz,Arsenal,Germany,26,ATT,SNT,83,77,81,80,82,49,72
+Gabriel Jesus,Arsenal,Brazil,28,ATT,SNT,82,83,80,75,88,39,77
+Ederson Moraes,Manchester City,Brazil,31,GK,GK,88,87,82,91,97,64,86
+tefan Ortega,Manchester City,Germany,32,GK,GK,81,79,77,86,84,52,81
+RRuben Dias,Manchester City,Portugal,28,DEF,STP,88,67,39,70,69,89,87
+Abdukodir Khusanov,Manchester City,Uzbekistan,21,DEF,STP,72,71,39,54,55,71,72
+Manuel Akanji,Manchester City,Switzerland,30,DEF,STP,84,78,48,71,75,85,82
+John Stones,Manchester City,England,31,DEF,STP,85,69,58,75,79,85,77
+Nathan Ake,Manchester City,Holland,30,DEF,STP,84,76,53,72,75,84,77
+Josko Gvardiol,Manchester City,Croatia,23,DEF,LB,83,79,69,74,78,83,83
+Rayan Ait-Nouri,Manchester City,Algeria,24,DEF,LB,79,84,52,73,82,73,70
+Rico Lewis,Manchester City,England,20,DEF,RB,76,78,54,73,81,71,57
+Rodri,Manchester City,Spain,29,MID,CDM,91,66,80,86,84,87,85
+Kalvin Phillips,Manchester City,England,29,MID,CDM,77,58,65,73,73,75,74
+Tijjani Reijnders,Manchester City,Holland,27,MID,CM,82,80,76,80,84,73,74
+Nico Gonzalez,Manchester City,Spain,23,MID,CDM,77,66,63,73,75,72,80
+Matheus Nunes,Manchester City,Portugal,26,MID,CM,78,83,71,74,81,73,76
+Mateo Kovacic,Manchester City,Croatia,31,MID,CM,83,69,67,82,87,71,70
+Ilkay Gundogan,Manchester City,Germany,34,MID,CM,87,62,83,85,87,74,73
+Bernardo Silva,Manchester City,Portugal,30,MID,CM,88,75,78,86,92,71,69
+James McAtee,Manchester City,England,22,ATT,RW,70,70,64,67,73,41,60
+Claudio Echeverri,Manchester City,Argentina,19,MID,CMM,71,87,62,67,79,35,44
+Jeremy Doku,Manchester City,Belgium,23,ATT,LW,80,92,72,73,86,30,68
+Jack Grealish,Manchester City,England,29,ATT,LW,84,76,76,82,88,53,73
+Phil Foden,Manchester City,England,25,ATT,RW,88,86,86,85,90,57,93
+Savinho,Manchester City,Brazil,21,ATT,LW,82,88,72,77,84,30,53
+Rayan Cherki,Manchester City,France,21,MID,CMM,75,68,67,74,84,21,61
+Oscar Bobb,Manchester City,Norway,22,ATT,RW,72,80,62,71,79,33,41
+Erling Haaland,Manchester City,Norway,25,ATT,SNT,91,88,92,70,81,45,88
+Omar Marmoush,Manchester City,Egypt,26,ATT,SNT,79,89,78,66,83,32,71
+Robert Sanchez,Chelsea,Spain,27,GK,GK,79,79,77,75,80,58,79
+Filip Jorgensen,Chelsea,Denmark,23,GK,GK,77,75,76,77,77,41,78
+Levi Colwill,Chelsea,England,22,DEF,STP,77,69,40,68,68,77,77
+Trevoh Chalobah,Chelsea,England,26,DEF,STP,78,67,50,67,67,78,78
+Wesley Fofana,Chelsea,France,24,DEF,STP,78,67,40,60,65,80,75
+Renato Veiga,Chelsea,Portugal,22,DEF,STP,72,73,60,70,70,70,72
+Axel Disasi,Chelsea,France,27,DEF,STP,79,57,48,60,59,80,81
+Benoit Badiashile,Chelsea,France,24,DEF,STP,78,62,47,67,60,78,77
+Tosin Adarabioyo,Chelsea,England,27,DEF,STP,78,72,35,63,63,78,78
+Mamadou Sarr,Chelsea,France,19,DEF,STP,65,62,30,51,54,65,68
+Marc Cucurella,Chelsea,Spain,27,DEF,LB,82,75,60,80,80,78,76
+Ben Chilwell,Chelsea,England,28,DEF,LB,79,76,60,78,77,75,72
+Malo Gusto,Chelsea,France,22,DEF,RB,80,88,49,75,78,73,75
+Reece James,Chelsea,England,25,DEF,RB,82,78,72,83,82,82,82
+Moises Caicedo,Chelsea,Ecuador,23,MID,CDM,82,75,63,75,78,79,78
+Romeo Lavia,Chelsea,Belgium,21,MID,CDM,75,67,50,70,75,73,73
+Dario Essugo,Chelsea,Portugal,20,MID,CDM,72,73,56,63,71,71,78
+Lesley Ugochukwu,Chelsea,France,21,MID,CDM,73,64,57,68,68,72,75
+Enzo Fernandez,Chelsea,Argentina,24,MID,CM,82,69,73,82,80,73,77
+Andrey Santos,Chelsea,Brazil,21,MID,CM,73,74,65,70,75,70,69
+Kiernan Dewsbury-Hall,Chelsea,England,26,MID,CM,78,67,71,77,78,69,77
+Carney Chukwuemeka,Chelsea,England,21,MID,CMM,72,65,65,68,76,50,63
+Cole Palmer,Chelsea,England,23,MID,CMM,85,75,82,83,86,50,66
+Jamie Gittins,Chelsea,England,20,ATT,LW,75,90,66,62,82,26,55
+Mykhaylo Mudryk,Chelsea,Ukraine,24,ATT,LW,77,92,72,72,80,38,63
+Pedro Neto,Chelsea,Portugal,25,ATT,RW,79,88,74,72,83,31,59
+Raheem Sterling,Chelsea,England,30,ATT,LW,81,85,78,75,85,42,65
+Nicolas Jackson,Chelsea,Senegal,24,ATT,SNT,79,83,78,65,80,40,73
+Joao Pedro,Chelsea,Brazil,23,ATT,SNT,77,77,77,67,79,28,62
+Liam Delap,Chelsea,England,22,ATT,SNT,71,76,70,58,70,29,74
+Christopher Nkunku,Chelsea,France,27,MID,CMM,84,81,81,81,86,60,67
+Guglielmo Vicario,Tottenham,Italy,28,GK,GK,84,84,80,79,87,52,84
+Antonin Kinski,Tottenham,Czech Republic,22,GK,GK,72,73,72,74,74,25,72
+Cristian Romero,Tottenham,Argentina,27,DEF,STP,84,68,46,59,66,85,81
+Micky van de Ven,Tottenham,Holland,24,DEF,STP,82,88,47,64,71,83,81
+Kevin Danso,Tottenham,Austria,26,DEF,STP,80,75,32,57,62,80,85
+Radu Draguin,Tottenham,Romania,23,DEF,STP,75,73,37,53,65,75,75
+Luka Vukovic,Tottenham,Croatia,18,DEF,STP,64,61,62,50,58,59,75
+Ben Davies,Tottenham,Wales,32,DEF,STP,76,58,58,72,72,77,72
+Destiny Udogie,Tottenham,Italy,22,DEF,LB,82,88,65,74,80,78,80
+Djed Spence,Tottenham,England,24,DEF,RB,72,86,43,60,74,67,60
+Pedro Porro,Tottenham,Spain,25,DEF,RB,83,82,73,80,81,78,77
+Archie Gray,Tottenham,England,19,MID,CDM,73,75,60,70,74,70,72
+Rodrigo Bentancur,Tottenham,Uruguay,28,MID,CM,81,67,68,80,82,79,76
+Yves Bissouma,Tottenham,Mali,28,MID,CDM,80,71,67,75,81,78,77
+Lucas Bergvall,Tottenham,Sweden,19,MID,CM,68,72,52,67,73,53,65
+Pape Matar Sarr,Tottenham,Senegal,22,MID,CDM,79,70,65,75,78,76,75
+Dejan Kulusevski,Tottenham,Sweden,25,ATT,RW,82,75,77,80,83,57,80
+James Maddison,Tottenham,England,28,MID,CMM,85,71,81,86,86,54,63
+Bryan Mbeumo,Manchester United,Cameroon,25,ATT,RW,80,84,80,74,80,49,76
+Mikey Moore,Tottenham,England,17,ATT,LW,64,75,60,60,66,35,51
+Bryan Gil,Tottenham,Spain,24,ATT,LW,76,75,67,74,81,31,40
+Manor Solomon,Tottenham,Israel,26,ATT,LW,76,82,72,73,80,43,42
+Mohammed Kudus,Tottenham,Ghana,24,ATT,RW,82,90,77,73,86,60,75
+Brennan Johnson,Tottenham,Wales,24,ATT,RW,78,89,74,72,78,43,59
+Wilson Odobert,Tottenham,France,20,DEF,RB,73,86,43,60,74,67,60
+Dominic Solanke,Tottenham,England,27,ATT,SNT,81,75,81,66,78,29,83
+Mathys Tel,Tottenham,France,20,ATT,SNT,77,86,80,64,77,29,64
+Richarlison,Tottenham,Brazil,28,ATT,SNT,81,77,80,73,80,53,78
+Andre Onana,Manchester United,Cameroon,29,GK,GK,83,83,75,87,86,61,79
+Amad Diallo,Manchester United,Ivory Coast,25,ATT,RW,75,85,71,68,80,25,50
+Leny Yoro,Manchester United,France,19,DEF,STP,78,73,41,59,61,79,73
+Lisandro Martinez,Manchester United,Argentina,27,DEF,STP,84,71,59,78,79,85,81
+Matthijs de Ligt,Manchester United,Holland,25,DEF,STP,84,62,61,63,67,85,83
+Harry Maguire,Manchester United,England,32,DEF,STP,80,37,57,70,65,80,82
+Patrick Dorgu,Manchester United,Denmark,20,DEF,LB,64,78,50,54,67,57,48
+Luke Shaw,Manchester United,England,30,DEF,LB,82,75,57,82,78,81,78
+Tyrell Malacia,Manchester United,Holland,25,DEF,LB,76,78,54,67,76,73,73
+Diogo Dalot,Manchester United,Portugal,26,DEF,RB,82,85,63,77,80,79,79
+Noussair Mazraoui,Manchester United,Morocco,27,DEF,RB,81,78,66,77,83,77,71
+Manuel Ugarte,Manchester United,Uruguay,24,MID,CDM,81,69,65,73,77,78,80
+Casemiro,Manchester United,Brazil,33,MID,CDM,84,38,74,77,69,82,82
+Kobbie Mainoo,Manchester United,England,20,MID,CDM,77,74,66,74,81,73,72
+Bruno Fernandes,Manchester United,Portugal,30,MID,CMM,87,70,85,88,83,65,75
+Mason Mount,Manchester United,England,26,MID,CM,78,70,77,81,79,61,65
+Alejandro Garnacho,Manchester United,Argentina,21,ATT,LW,79,86,75,72,81,37,59
+Jadon Sancho,Manchester United,England,25,ATT,LW,82,79,69,78,89,32,50
+Yoane Wissa,Brentford,Congo Republic,28,ATT,LW,79,85,79,70,79,29,71
+Noah Sadiki,Sunderland,Congo Republic,20,MID,CDM,67,73,38,59,68,65,67
+Antony,Manchester United,Brazil,23,ATT,RW,77,82,70,72,82,43,72
+Matheus Cunha,Manchester United,Brazil,25,ATT,SNT,79,84,78,76,83,44,75
+Rasmus Hojlund,Manchester United,Denmark,26,ATT,SNT,78,85,77,59,74,33,84
+Joshua Zirkzee,Manchester United,Holland,22,ATT,SNT,79,73,77,72,83,37,73
+Emiliano Martinez,Aston Villa,Argentina,32,GK,GK,87,84,82,83,86,56,87
+Marco Bizot,Aston Villa,Holland,34,GK,GK,79,79,76,72,80,46,79
+Ezri Konsa,Aston Villa,England,27,DEF,STP,81,76,48,71,76,83,78
+Pau Torres,Aston Villa,Spain,28,DEF,STP,82,70,41,77,70,83,79
+Chris Wood,Nottingham Forest,New Zealand,33,ATT,SNT,76,49,78,61,68,40,79
+Lamare Bogarde,Aston Villa,Holland,21,MID,CDM,64,64,46,57,61,63,69
+Tyrone Mings,Aston Villa,England,32,DEF,STP,79,64,44,67,64,78,80
+Ian Maatsen,Aston Villa,Holland,23,DEF,LB,79,86,65,75,81,72,63
+Lucas Digne,Aston Villa,France,32,DEF,LB,79,73,68,78,76,76,74
+Alex Moreno,Aston Villa,Spain,32,DEF,LB,79,79,66,74,77,76,68
+Matty Cash,Aston Villa,Poland,27,DEF,RB,79,77,66,71,75,75,76
+Andres Garcia,Aston Villa,Spain,22,ATT,RW,69,74,62,62,71,55,60
+Amadou Onana,Aston Villa,Belgium,23,MID,CDM,78,72,59,71,72,76,79
+Boubacar Kamara,Aston Villa,France,25,MID,CDM,82,66,54,74,75,83,80
+Leander Dendoncker,Aston Villa,Belgium,30,MID,CM,75,53,69,75,70,76,78
+Youri Tielemans,Aston Villa,Belgium,28,MID,CM,81,44,79,83,79,69,70
+John McGinn,Aston Villa,Scotland,30,MID,CM,82,68,77,80,82,78,85
+Ross Barkley,Aston Villa,England,31,MID,CM,78,53,75,78,77,63,74
+Jacob Ramsey,Aston Villa,England,24,ATT,LW,78,78,75,73,80,68,74
+Morgan Rogers,Aston Villa,England,23,DEF,LB,75,77,71,71,77,56,71
+Emiliano Buendia,Aston Villa,Argentina,28,ATT,RW,78,69,74,80,82,66,66
+Samuel Iling-Junior,Aston Villa,England,21,ATT,LW,73,81,61,69,78,37,55
+Ollie Watkins,Aston Villa,England,29,ATT,SNT,85,85,83,73,80,50,83
+Leon Bailey,Aston Villa,Jamaica,27,ATT,RW,82,90,78,77,86,38,62
+Donyell Malen,Aston Villa,Holland,26,ATT,RW,83,89,81,74,85,35,72
+Nick Pope,Newcastle United,England,33,GK,GK,83,82,82,75,85,49,82
+Odysseas Vlachodimos,Newcastle United,Greece,31,GK,GK,74,75,73,66,74,43,74
+Martin Dubravka,Newcastle United,Slovakia,36,GK,GK,76,76,74,78,78,38,75
+Sven Botman,Newcastle United,Holland,25,DEF,STP,82,60,37,63,65,83,83
+Fabian Schar,Newcastle United,Switzerland,33,DEF,STP,82,51,68,77,74,84,79
+Dan Burn,Newcastle United,England,33,DEF,STP,78,42,36,67,63,77,84
+Jamaal Lascelles,Newcastle United,England,31,DEF,STP,75,40,35,51,50,76,78
+Lewis Hall,Newcastle United,England,20,DEF,LB,73,74,62,74,75,68,59
+Matt Targett,Newcastle United,England,29,DEF,LB,74,65,47,71,70,73,66
+Tino Livramento,Newcastle United,England,22,DEF,RB,78,83,50,70,79,74,73
+Kieran Trippier,Newcastle United,England,34,DEF,RB,83,67,65,85,78,81,72
+Bruno Guimaraes,Newcastle United,Brazil,27,MID,CDM,85,68,75,83,84,79,83
+Sandro Tonali,Newcastle United,Italy,25,MID,CDM,85,84,74,81,81,82,82
+Joelinton,Newcastle United,Brazil,28,MID,CM,82,76,72,76,82,81,89
+Joe Willock,Newcastle United,England,25,MID,CM,77,77,72,73,80,72,69
+Lewis Miley,Newcastle United,England,19,MID,CM,72,65,61,72,73,64,66
+Anthony Gordon,Newcastle United,England,24,ATT,LW,82,91,78,76,81,49,71
+Harvey Barnes,Newcastle United,England,27,ATT,LW,80,85,78,75,81,43,68
+Heung-min Son,Tottenham,South Korea,33,ATT,SNT,87,87,89,81,85,42,73
+Jacob Murphy,Newcastle United,England,30,ATT,RW,76,82,70,71,78,61,69
+Lyle Foster,Burnley,South Africa,24,ATT,SNT,72,79,72,61,69,36,73
+William Osula,Newcastle United,Denmark,21,ATT,SNT,67,68,66,49,64,24,63
+Matz Sels,Nottingham Forest,Belgium,33,GK,GK,77,76,76,79,77,36,77
+Carlos Miguel,Nottingham Forest,Brazil,26,GK,GK,73,71,74,69,71,17,73
+Matt Turner,Nottingham Forest,USA,31,GK,GK,74,74,72,67,74,40,73
+Murillo,Nottingham Forest,Brazil,23,DEF,STP,78,72,43,61,67,78,82
+Nikola Milenković,Nottingham Forest,Serbia,27,DEF,STP,79,58,45,62,62,79,82
+Morato,Nottingham Forest,Brazil,24,DEF,STP,76,68,37,57,61,76,82
+David Carmo,Nottingham Forest,Angola,26,DEF,STP,76,49,39,58,51,77,81
+Ola Aina,Nottingham Forest,Nigeria,28,DEF,LB,75,89,60,69,74,70,74
+Neco Williams,Nottingham Forest,Wales,24,DEF,RB,76,74,46,68,73,74,68
+Ibrahim Sangare,Nottingham Forest,Ivory Coast,27,MID,CDM,77,60,65,72,72,77,83
+Marko Stamenic,Nottingham Forest,New Zealand,23,MID,CDM,72,67,60,68,72,66,75
+Elliot Anderson,Nottingham Forest,England,22,MID,CM,75,72,66,72,79,69,77
+Nicolas Dominguez,Nottingham Forest,Argentina,27,MID,CDM,77,69,65,72,76,72,77
+Ryan Yates,Nottingham Forest,England,27,MID,CDM,75,58,60,67,67,75,81
+Eric da Silva Moreira,Nottingham Forest,Germany,19,ATT,RW,61,75,43,56,63,52,58
+Morgan Gibbs-White,Nottingham Forest,England,25,MID,CMM,79,75,74,79,80,57,69
+Callum Hudson-Odoi,Nottingham Forest,England,24,ATT,LW,77,82,72,73,80,48,60
+Jota Silva,Nottingham Forest,Portugal,25,ATT,RW,77,83,72,69,76,44,74
+Taiwo Awoniyi,Nottingham Forest,Nigeria,27,ATT,SNT,76,75,76,60,69,32,79
+Hee-chan Hwang,Wolverhampton,South Korea,29,ATT,SNT,78,84,77,70,78,39,74
+Emmanuel Dennis,Nottingham Forest,Nigeria,27,ATT,LW,72,85,71,63,75,41,70
+Willy Boly,Nottingham Forest,Ivory Coast,34,DEF,STP,77,34,36,60,58,77,78
+Bart Verbruggen,Brighton,Holland,22,GK,GK,76,78,72,74,81,56,69
+Jason Steele,Brighton,England,34,GK,GK,75,75,73,80,74,39,75
+Tom McGill,Brighton,Canada,25,GK,GK,60,62,60,63,62,19,59
+Jan Paul van Hecke,Brighton,Holland,25,DEF,STP,76,55,45,58,65,77,77
+Olivier Boscagli,Brighton,France,27,DEF,STP,78,67,50,75,76,80,75
+Igor,Brighton,Brazil,27,DEF,STP,77,67,37,57,58,77,85
+Adam Webster,Brighton,England,30,DEF,STP,76,54,31,61,68,77,76
+Diego Coppola,Brighton,Italy,21,DEF,STP,71,53,40,55,50,73,65
+Lewis Dunk,Brighton,England,33,DEF,STP,79,41,52,68,65,80,80
+Anthony Elanga,Newcastle United,Sweden,23,ATT,RW,76,87,69,68,78,39,69
+Maxim De Cuyper,Brighton,Belgium,24,DEF,LB,76,76,72,79,77,68,70
+Tariq Lamptey,Brighton,Ghana,24,DEF,RB,75,85,44,66,77,70,50
+Joel Veltman,Brighton,Holland,33,DEF,RB,76,54,49,68,71,79,74
+Carlos Baleba,Brighton,Cameroon,21,MID,CDM,73,77,50,65,74,68,77
+Mats Wieffer,Brighton,Holland,25,MID,CDM,80,70,66,74,75,76,83
+Jack Hinshelwood,Brighton,England,20,MID,CDM,69,63,63,69,69,66,65
+Yasin Ayari,Brighton,Sweden,21,MID,CM,66,63,51,66,69,52,59
+Matt O'Riley,Brighton,Denmark,24,MID,CM,79,69,77,80,77,67,76
+Malick Yalcouy,Brighton,Ivory Coast,19,MID,CM,66,82,55,55,68,61,66
+Diego Gomez,Brighton,Paraguay,22,MID,CM,68,75,63,65,69,59,72
+James Milner,Brighton,England,39,MID,CM,75,50,70,78,74,74,73
+Facundo Buonanotte,Brighton,Argentina,20,ATT,RW,73,75,67,70,76,30,52
+Andrew Moran,Brighton,Ireland,21,MID,CMM,67,75,58,66,71,39,57
+Kaoru Mitoma,Brighton,Japan,28,ATT,LW,81,84,73,75,85,57,65
+Abdallah Sima,Brighton,Senegal,24,ATT,LW,74,89,73,66,72,41,72
+Jeremy Sarmiento,Brighton,Ekvador,23,ATT,LW,69,78,63,65,72,37,60
+Yankuba Minteh,Brighton,Gambia,21,ATT,RW,74,95,65,61,79,45,56
+Brajan Gruda,Brighton,Germany,21,MID,CMM,74,78,71,69,81,30,67
+Solly March,Brighton,England,31,ATT,RW,78,75,71,76,79,67,65
+Georginio Rutter,Brighton,France,23,MID,CMM,75,79,69,70,79,42,70
+Stefanos Tzimas,Brighton,Greece,19,ATT,SNT,67,76,67,50,65,31,64
+Charalampos Kostoulas,Brighton,Greece,18,ATT,SNT,64,68,63,53,61,35,64
+Danny Welbeck,Brighton,England,34,ATT,SNT,76,54,76,70,76,42,71
+Alphonse Areola,West Ham United,France,32,GK,GK,81,82,77,74,83,55,80
+Wes Foderingham,West Ham United,England,34,GK,GK,73,74,71,72,75,44,72
+Krisztian Hegyi,West Ham United,Hungary,22,GK,GK,55,56,55,53,57,25,52
+Maximilian Kilman,West Ham United,England,28,DEF,STP,77,61,42,66,64,77,78
+Jean-Clair Todibo,West Ham United,France,25,DEF,STP,80,81,47,64,69,80,78
+Nayef Aguerd,West Ham United,Morocco,29,DEF,STP,79,67,50,64,64,81,75
+Konstantinos Mavropanos,West Ham United,Greece,27,DEF,STP,78,74,56,54,59,79,82
+El Hadji Malick Diouf,West Ham United,Cameroon,20,DEF,LB,71,78,58,64,69,67,71
+Emerson,West Ham United,Italy,30,DEF,LB,78,79,63,75,78,73,65
+Aaron Wan-Bissaka,West Ham United,Congo Republic,27,DEF,RB,79,82,51,68,77,77,72
+Kyle Walker-Peters,West Ham United,England,28,DEF,RB,76,75,47,68,74,73,71
+Edson Alvarez,West Ham United,Mexico,27,MID,CDM,81,66,58,69,72,83,87
+Tomas Soucek,West Ham United,Czech Republic,30,MID,CDM,79,50,72,71,68,80,83
+Guido Rodriguez,West Ham United,Argentina,31,MID,CDM,83,51,58,72,70,85,80
+Freddie Potts,West Ham United,England,21,MID,CDM,67,63,52,62,63,64,68
+James Ward-Prowse,West Ham United,England,30,MID,CM,79,57,73,86,75,66,72
+Andrew Irving,West Ham United,Scotland,25,MID,CM,71,57,71,71,71,63,77
+Lewis Orford,West Ham United,England,19,MID,CDM,58,61,43,58,57,50,60
+Lucas Paqueta,West Ham United,Brazil,27,ATT,LW,82,72,77,79,85,69,79
+George Earthy,West Ham United,England,20,MID,CMM,64,67,58,61,67,38,47
+Crysencio Summerville,West Ham United,Holland,23,ATT,LW,76,91,71,67,79,35,60
+Maxwel Cornet,West Ham United,Ivory Coast,28,ATT,LW,75,85,75,70,76,67,70
+Jarrod Bowen,West Ham United,England,28,ATT,RW,82,77,81,76,81,76,70
+Luis Guilherme,West Ham United,Brazil,19,ATT,RW,71,76,62,64,75,33,57
+Niclas Füllkrug,West Ham United,Germany,32,ATT,SNT,82,63,84,71,75,43,81
+Caoimhín Kelleher,Brentford,Ireland,26,GK,GK,77,76,74,77,78,43,76
+Hákon Rafn Valdimarsson,Brentford,Iceland,23,GK,GK,68,68,65,64,69,20,68
+Matthew Cox,Brentford,England,22,GK,GK,65,67,63,65,66,30,65
+Ellery Balcombe,Brentford,England,25,GK,GK,61,61,59,61,64,39,59
+Nathan Collins,Brentford,Ireland,24,DEF,STP,75,61,30,55,62,76,76
+Sepp van den Berg,Brentford,Netherlands,23,DEF,STP,77,76,36,63,66,78,76
+Kristoffer Ajer,Brentford,Norway,27,DEF,STP,76,64,56,63,70,74,82
+Ethan Pinnock,Brentford,Jamaica,32,DEF,STP,79,67,36,56,61,81,83
+Keane Lewis-Potter,Brentford,England,24,ATT,LW,73,78,67,65,76,44,65
+Rico Henry,Brentford,England,28,DEF,LB,77,87,41,62,75,75,71
+Jayden Meghoma,Brentford,England,19,DEF,LB,57,75,36,48,56,51,56
+Michael Kayode,Brentford,Nigeria,21,DEF,RB,71,65,35,56,71,72,58
+Aaron Hickey,Brentford,Scotland,23,DEF,RB,76,74,54,70,74,74,68
+Mads Roerslev,Brentford,Denmark,26,DEF,RB,73,68,45,69,70,70,70
+Vitaly Janelt,Brentford,Germany,27,MID,CM,76,60,70,73,73,73,78
+Alexander Isak,Newcastle United,Sweden,25,ATT,SNT,85,85,84,73,86,39,74
+Jordan Henderson,Brentford,England,35,MID,CDM,80,64,72,81,76,75,78
+Yehor Yarmolyuk,Brentford,Ukraine,21,MID,CMM,68,67,61,68,71,47,64
+Mathias Jensen,Brentford,Denmark,29,MID,CM,77,67,64,79,75,69,74
+Frank Onyeka,Brentford,Nigeria,27,MID,CM,72,77,63,66,73,72,76
+Paris Maghoma,Brentford,Congo,24,MID,CM,67,66,61,65,70,60,68
+Ryan Trevitt,Brentford,England,22,MID,CM,61,62,58,60,65,48,61
+Mikkel Damsgaard,Brentford,Denmark,25,MID,CM,73,81,69,71,78,61,65
+Antoni Milambo,Brentford,Netherlands,20,MID,CM,66,68,58,64,70,44,55
+Fábio Carvalho,Brentford,Portugal,22,MID,CM,74,77,68,68,77,45,51
+Kevin Schade,Brentford,Germany,23,ATT,LW,72,94,65,59,73,29,64
+Myles Peart-Harris,Brentford,England,22,MID,CM,64,72,61,63,65,52,71
+Romelle Donovan,Brentford,England,18,ATT,RW,57,79,46,49,64,29,45
+Altay Bayindir,Manchester United,Turkiye,27,GK,GK,76,78,73,72,79,30,76
+Igor Thiago,Brentford,Brazil,24,ATT,SNT,76,73,75,54,69,37,86
+Jordan Pickford,Everton,England,31,GK,GK,83,83,78,88,87,53,80
+Mark Travers,Everton,Ireland,26,GK,GK,73,73,69,70,76,40,73
+Harry Tyrer,Everton,England,23,GK,GK,61,60,58,59,61,16,61
+Jarrad Branthwaite,Everton,England,23,DEF,STP,79,71,37,53,59,79,77
+James Tarkowski,Everton,England,32,DEF,STP,80,47,45,64,59,81,81
+Michael Keane,Everton,England,32,DEF,STP,75,41,49,62,59,76,74
+Vitaliy Mykolenko,Everton,Ukraine,26,DEF,LB,77,75,51,65,61,76,69
+Jake O'Brien,Everton,Ireland,24,DEF,STP,75,76,41,53,51,73,79
+Nathan Patterson,Everton,Scotland,23,DEF,RB,71,75,46,60,69,69,70
+Seamus Coleman,Everton,Ireland,36,DEF,RB,74,53,65,71,73,76,70
+James Garner,Everton,England,24,MID,CM,75,66,65,77,71,71,71
+Idrissa Gueye,Everton,Senegal,35,MID,CDM,76,60,60,66,71,78,68
+Tim Iroegbunam,Everton,England,22,MID,CDM,69,65,58,64,68,66,71
+Dwight McNeil,Everton,England,25,ATT,LW,77,68,73,77,78,55,68
+Iliman Ndiaye,Everton,Senegal,25,ATT,SNT,75,84,72,63,82,40,62
+Beto,Everton,Portugal,27,ATT,SNT,77,79,76,58,70,25,85
+Thierno Barry,Everton,Guinea,22,ATT,SNT,69,77,69,48,68,22,63
+Chermiti,Everton,Portugal,21,ATT,SNT,71,67,68,55,69,33,71
+Dean Henderson,Crystal Palace,England,28,GK,GK,79,80,76,78,81,55,75
+Walter Benítez,Crystal Palace,Argentina,32,GK,GK,80,79,78,72,82,37,79
+Remi Matthews,Crystal Palace,England,30,GK,GK,63,64,63,62,63,45,62
+Marc Guéhi,Crystal Palace,England,24,DEF,STP,81,72,39,65,72,82,77
+Maxence Lacroix,Crystal Palace,France,25,DEF,STP,76,88,41,55,67,76,77
+Chadi Riad,Crystal Palace,Morocco,21,DEF,STP,72,62,32,54,54,72,74
+Chris Richards,Crystal Palace,USA,25,DEF,STP,76,71,27,59,61,76,74
+Tyrick Mitchell,Crystal Palace,England,24,DEF,LB,77,75,41,62,73,76,69
+Borna Sosa,Crystal Palace,Croatia,27,DEF,LB,75,71,53,78,75,67,71
+Daniel Muñoz,Crystal Palace,Colombia,29,DEF,RB,80,84,66,72,76,75,82
+Nathaniel Clyne,Crystal Palace,England,34,DEF,RB,74,70,60,68,72,74,67
+Caleb Kporha,Crystal Palace,England,19,DEF,RB,61,69,59,56,60,57,61
+Adam Wharton,Crystal Palace,England,21,MID,CDM,78,68,61,78,78,75,71
+Cheick Doucouré,Crystal Palace,Mali,25,MID,CDM,79,65,57,70,75,76,76
+Jefferson Lerma,Crystal Palace,Colombia,29,MID,CDM,79,72,71,71,74,77,81
+Will Hughes,Crystal Palace,England,30,MID,CDM,74,43,63,75,73,71,63
+Justin Devenny,Crystal Palace,Northern Ireland,21,MID,CM,60,64,58,60,59,56,65
+Naouirou Ahamada,Crystal Palace,France,23,MID,CM,69,70,63,66,73,61,62
+Eberechi Eze,Crystal Palace,England,27,MID,CMM,81,78,81,78,84,49,69
+Daichi Kamada,Crystal Palace,Japan,28,MID,CMM,81,79,73,80,83,54,63
+Matheus França,Crystal Palace,Brazil,21,MID,CMM,69,77,70,61,75,36,65
+Ismaïla Sarr,Crystal Palace,Senegal,27,ATT,RW,76,91,76,66,79,22,68
+Romain Esse,Crystal Palace,England,19,ATT,RW,64,73,53,59,68,47,56
+Jesurun Rak-Sakyi,Crystal Palace,England,22,ATT,RW,71,83,69,63,75,24,51
+Malcolm Ebiowei,Crystal Palace,England,21,ATT,RW,66,76,62,60,70,38,53
+Jean-Philippe Mateta,Crystal Palace,France,26,ATT,SNT,79,76,78,63,73,39,82
+Eddie Nketiah,Crystal Palace,England,26,ATT,SNT,76,79,74,58,78,25,66
+Odsonne Edouard,Crystal Palace,France,27,ATT,SNT,75,73,75,67,76,45,69
+Neto,Bournemouth,Brazil,36,GK,GK,78,80,72,73,82,53,76
+Alex Paulsen,Bournemouth,New Zealand,23,GK,GK,70,68,65,70,73,49,64
+Will Dennis,Bournemouth,England,25,GK,GK,67,70,65,63,69,33,66
+Ilya Zabarnyi,Bournemouth,Ukraine,22,DEF,STP,77,63,37,62,61,78,76
+Marcos Senesi,Bournemouth,Argentina,28,DEF,STP,78,57,42,70,72,79,77
+Chris Mepham,Bournemouth,Wales,27,DEF,STP,71,47,37,55,60,72,72
+James Hill,Bournemouth,England,23,DEF,STP,69,70,39,57,59,69,72
+Matai Akinmboni,Bournemouth,USA,18,DEF,STP,53,54,25,36,37,53,60
+Adrien Truffert,Bournemouth,France,23,DEF,LB,77,76,57,71,75,73,69
+Julio Soler,Bournemouth,Spain,20,DEF,LB,65,82,41,49,62,62,60
+Julian Araujo,Bournemouth,Mexico,23,DEF,RB,74,90,33,62,69,70,75
+Adam Smith,Bournemouth,England,34,DEF,RB,73,65,59,70,70,72,70
+Tyler Adams,Bournemouth,USA,26,MID,CDM,77,77,50,68,72,77,74
+Ryan Christie,Bournemouth,Scotland,30,MID,CM,76,76,70,75,77,71,78
+Alex Scott,Bournemouth,England,21,MID,CM,74,73,62,73,79,65,68
+Lewis Cook,Bournemouth,England,28,MID,CDM,77,60,62,75,77,73,68
+Philip Billing,Bournemouth,Denmark,29,MID,CM,77,50,77,73,73,72,80
+Romain Faivre,Bournemouth,France,27,ATT,RW,77,71,73,76,80,62,65
+Marcus Tavernier,Bournemouth,England,26,ATT,LW,76,77,72,71,78,60,64
+Justin Kluivert,Bournemouth,Netherlands,28,MID,CMM,77,88,75,73,81,38,65
+Antoine Semenyo,Bournemouth,Ghana,25,ATT,RW,76,85,72,67,77,27,75
+Dango Ouattara,Bournemouth,Burkina Faso,23,ATT,LW,74,85,68,65,77,47,57
+Luis Sinisterra,Bournemouth,Colombia,26,ATT,LW,77,88,71,69,82,52,51
+David Brooks,Bournemouth,Wales,28,ATT,RW,74,65,69,73,77,48,58
+Evanilson,Bournemouth,Brazil,25,ATT,SNT,80,76,78,65,78,37,80
+Eli Junior Kroupi,Bournemouth,France,19,ATT,SNT,68,71,67,66,74,45,54
+Yasin Ozcan,Aston Villa,Turkiye,19,DEF,LB,63,65,36,45,55,64,67
+Bernd Leno,Fulham,Germany,33,GK,GK,82,83,79,76,84,53,62
+Benjamin Lecomte,Fulham,France,34,GK,GK,77,76,75,77,76,41,75
+Joachim Andersen,Fulham,Denmark,29,DEF,STP,80,52,57,72,66,79,84
+Calvin Bassey,Fulham,Nigeria,25,DEF,STP,76,82,44,62,67,74,86
+Issa Diop,Fulham,France,27,DEF,STP,77,57,37,53,55,77,80
+Jorge Cuenca,Fulham,Spain,25,DEF,STP,74,60,37,60,53,76,67
+Antonee Robinson,Fulham,England,25,DEF,LB,79,88,46,71,77,74,77
+Ryan Sessegnon,Fulham,England,23,DEF,LB,74,77,64,72,76,71,64
+Kenny Tete,Fulham,Netherlands,29,DEF,RB,76,73,47,67,69,75,77
+Timothy Castagne,Fulham,Belgium,29,DEF,RB,77,72,57,71,73,74,72
+Sander Berge,Fulham,Norway,28,MID,CM,76,53,65,73,71,75,85
+Sasa Lukic,Fulham,Serbia,27,MID,CM,75,53,69,74,75,70,70
+Harrison Reed,Fulham,England,27,MID,CDM,75,59,60,71,71,72,74
+Tom Cairney,Fulham,Scotland,26,MID,CM,75,52,72,78,75,63,65
+Emile Smith Rowe,Fulham,Brazil,25,MID,CMM,77,76,71,74,80,43,61
+Andreas Pereira,Fulham,England,29,ATT,RW,78,74,77,80,78,66,69
+Alex Iwobi,Fulham,England,25,ATT,RW,77,75,65,72,80,56,75
+Harry Wilson,Fulham,Wales,22,ATT,RW,75,76,77,75,76,43,58
+Adama Traoré,Fulham,Spain,28,ATT,RW,75,93,65,64,81,37,80
+Rodrigo Muniz,Fulham,Brazil,26,ATT,SNT,75,73,74,59,71,42,77
+Raúl Jiménez,Fulham,Mexico,34,ATT,SNT,74,54,76,73,73,45,78
+José Sá,Wolverhampton,Portugal,32,GK,GK,79,80,75,70,81,52,78
+Sam Johnstone,Wolverhampton,England,32,GK,GK,78,79,79,69,80,41,76
+Daniel Bentley,Wolverhampton,England,32,GK,GK,72,73,67,69,73,46,72
+Tom King,Wolverhampton,Wales,30,GK,GK,64,64,63,61,64,42,63
+Toti,Wolverhampton,Portugal,26,DEF,STP,76,79,47,65,66,76,76
+Emmanuel Agbadou,Wolverhampton,Ivory Coast,28,DEF,STP,77,63,47,55,60,76,83
+Santiago Bueno,Wolverhampton,Uruguay,26,DEF,STP,77,50,31,56,56,78,78
+Yerson Mosquera,Wolverhampton,Colombia,24,DEF,STP,70,78,30,49,52,69,73
+Hugo Bueno,Wolverhampton,Spain,22,DEF,LB,72,75,53,71,77,65,65
+Ki-Jana Hoever,Wolverhampton,Netherlands,23,DEF,RB,72,73,54,68,69,67,71
+Pedro Lima,Wolverhampton,Brazil,19,DEF,RB,68,85,48,67,72,60,57
+Matt Doherty,Wolverhampton,Ireland,33,DEF,RB,73,67,65,69,69,72,73
+Joao Gomes,Wolverhampton,Brazil,24,MID,CDM,78,70,65,72,74,76,75
+Jean-Ricner Bellegarde,Wolverhampton,France,27,MID,CM,75,81,63,73,79,69,72
+Marshall Munetsi,Wolverhampton,Zimbabwe,29,MID,CM,76,69,69,71,72,73,80
+Rodrigo Gomes,Wolverhampton,Portugal,22,ATT,RW,72,81,67,64,74,52,51
+Gonçalo Guedes,Wolverhampton,Portugal,28,ATT,SNT,77,83,79,71,81,37,68
+Enso González,Wolverhampton,Paraguay,20,ATT,LW,63,81,52,58,69,35,40
+Jørgen Strand Larsen,Wolverhampton,Norway,25,ATT,SNT,75,77,75,58,69,32,82
+Fábio Silva,Wolverhampton,Portugal,23,ATT,SNT,73,74,73,58,74,31,72
+Ferdi Kadioglu,Brighton,Turkiye,25,DEF,LB,81,88,65,75,85,75,76
+Sasa Kalajdzic,Wolverhampton,Austria,28,ATT,SNT,77,51,75,68,71,46,68
+Max Weib,Burnley,Germany,21,GK,GK,62,64,60,64,70,32,52
+Etienne Green,Burnley,England,25,GK,GK,68,69,68,71,69,26,67
+Vaclav Hladky,Burnley,Czech Republic,34,GK,GK,68,69,68,71,69,26,67
+Maxime Esteve,Burnley,France,23,DEF,STP,74,61,33,52,54,74,77
+Jordan Beyer,Burnley,Germany,25,DEF,STP,76,72,34,63,70,76,75
+Joe Worrall,Burnley,England,28,DEF,STP,74,50,25,51,45,75,76
+Hjalmar Ekdal,Burnley,Sweden,26,DEF,STP,72,59,33,52,62,72,75
+Hannes Delcroix,Burnley,Belgium,26,DEF,STP,72,67,33,61,62,72,70
+Quilindschy Hartman,Burnley,Netherlands,23,ATT,LW,77,80,53,77,74,72,77
+Bashir Humphreys,Burnley,England,22,DEF,STP,68,62,35,58,59,68,68
+Lucas Pires,Burnley,Brazil,24,DEF,LB,72,76,49,64,64,67,66
+Owen Dodgson,Burnley,England,22,DEF,LB,63,68,46,61,59,59,65
+Axel Tuanzebe,Burnley,England,27,DEF,STP,73,80,36,62,68,72,70
+Connor Roberts,Burnley,England,29,DEF,RB,73,76,61,70,70,68,73
+Kyle Walker,Burnley,England,35,DEF,RB,84,89,64,77,78,79,81
+Oliver Sonne,Burnley,Denmark,24,DEF,RB,70,77,45,63,67,63,66
+Shurandy Sambo,Burnley,Netherlands,23,DEF,RB,69,79,43,60,67,64,72
+Josh Cullen,Burnley,Ireland,29,MID,CDM,76,60,61,75,73,72,70
+Josh Laurent,Burnley,England,30,MID,CDM,70,77,60,61,68,69,85
+Hannibal,Burnley,Tunisia,22,MID,CM,69,73,60,70,70,64,75
+Aaron Ramsey,Burnley,England,22,ATT,LW,70,73,63,67,72,50,60
+Jaidon Anthony,Burnley,England,25,ATT,LW,72,77,66,68,74,39,63
+Jacob Bruun Larsen,Burnley,England,26,ATT,LW,73,81,72,70,73,55,66
+Mike Tresor,Burnley,Belgium,26,ATT,LW,75,85,68,74,77,38,58
+Darko Churlinov,Burnley,North Macedonia,25,ATT,RW,68,78,66,63,72,51,54
+Jaydon Banel,Burnley,Netherlands,20,ATT,LW,64,79,56,56,67,29,48
+Marcus Edwards,Burnley,England,26,ATT,RW,79,85,70,72,85,30,48
+Loum Tchaouna,Burnley,France,21,ATT,LW,70,75,72,63,71,37,59
+Zeki Amdouni,Burnley,Tunisia,24,ATT,SNT,73,69,74,69,75,46,70
+Zian Flemming,Burnley,England,26,ATT,SNT,74,70,75,72,73,57,79
+Yunus Emre Konak,Brentford,Turkiye,19,MID,CDM,60,60,43,55,54,57,56
+Michael Obafemi,Burnley,Ireland,25,ATT,SNT,69,80,68,56,70,23,64
+Ashley Barnes,Burnley,England,35,ATT,SNT,71,47,72,69,69,47,79
+Illan Meslier,Leeds United,France,25,GK,GK,74,75,73,70,76,38,70
+Lucas Perri,Leeds United,Brazil,27,GK,GK,78,81,73,80,81,35,75
+Karl Darlow,Leeds United,Wales,34,GK,GK,72,73,70,66,75,58,72
+Alex Cairns,Leeds United,England,32,GK,GK,63,63,61,62,63,49,62
+Ethan Ampadu,Leeds United,Wales,24,DEF,STP,75,68,51,64,69,76,77
+Pascal Struijk,Leeds United,Netherlands,25,DEF,STP,74,56,46,59,64,74,78
+Jaka Bijol,Leeds United,Slovenia,26,DEF,STP,75,59,59,65,61,75,77
+Joe Rodon,Leeds United,Wales,27,DEF,STP,75,70,32,51,59,76,77
+Sebastiaan Bornauw,Leeds United,Belgium,26,DEF,STP,74,74,45,59,55,74,77
+Gabriel Gudmundsson,Leeds United,Sweden,26,DEF,LB,74,85,64,69,72,67,72
+Sam Byram,Leeds United,England,31,DEF,LB,72,71,57,65,71,71,69
+Jayden Bogle,Leeds United,England,25,DEF,RB,73,79,55,67,74,69,68
+Isaac Schmidt,Leeds United,Switzerland,25,DEF,LB,71,86,54,59,74,66,66
+Anton Stach,Leeds United,Germany,26,MID,CM,77,73,68,74,72,77,80
+Ao Tanaka,Leeds United,Japan,26,MID,CDM,73,68,67,69,72,70,70
+Ilia Gruev,Leeds United,Bulgaria,25,MID,CDM,73,67,48,69,71,70,68
+Charlie Crew,Leeds United,Wales,19,MID,CDM,62,64,33,57,61,57,59
+Sean Longstaff,Leeds United,England,27,MID,CM,76,56,68,73,73,73,71
+Darko Gyabi,Leeds United,England,21,MID,CDM,66,59,50,60,64,64,71
+Brenden Aaronson,Leeds United,USA,24,MID,CMM,73,79,65,69,77,55,59
+Largie Ramazani,Leeds United,Belgium,24,ATT,RW,71,87,64,62,75,33,57
+Wilfried Gnonto,Leeds United,Italy,21,ATT,RW,74,87,72,65,79,30,66
+Daniel James,Leeds United,Wales,27,ATT,RW,75,93,70,66,74,46,66
+Jack Harrison,Leeds United,England,28,ATT,RW,76,79,71,70,78,49,69
+Joel Piroe,Leeds United,Netherlands,25,ATT,SNT,74,64,75,63,71,29,71
+Sam Greenwood,Leeds United,England,23,ATT,LW,69,71,67,67,69,52,69
+Mateo Joseph,Leeds United,Spain,21,ATT,SNT,68,82,67,50,67,28,63
+Lukas Nmecha,Leeds United,Germany,26,ATT,SNT,77,76,77,66,77,40,77
+Joe Gelhardt,Leeds United,England,23,MID,CMM,69,74,68,60,75,29,69
+Patrick Bamford,Leeds United,England,31,ATT,SNT,74,74,72,68,71,41,74
+Anthony Patterson,Sunderland,England,25,GK,GK,72,71,69,72,75,24,68
+Blondy Nna Noukeu,Sunderland,Cameroon,23,GK,GK,57,59,55,55,64,17,53
+Simon Moore,Sunderland,England,35,GK,GK,65,66,64,68,66,47,62
+Daniel Ballard,Sunderland,Northern Ireland,25,DEF,STP,73,60,30,53,57,72,81
+Jenson Seelt,Sunderland,Netherlands,22,DEF,STP,66,65,35,48,50,65,71
+Luke O'Nien,Sunderland,England,22,DEF,STP,70,72,58,62,65,68,82
+Aji Alese,Sunderland,England,30,DEF,LB,66,75,33,52,60,66,74
+Joe Anderson,Sunderland,England,24,DEF,STP,63,55,35,48,50,63,64
+Dennis Cirkin,Sunderland,England,24,DEF,LB,68,77,47,58,65,64,62
+Nectarios Triantis,Sunderland,Australia,22,DEF,STP,65,57,34,56,48,63,70
+Leo Fuhr Hjelde,Sunderland,Norway,21,DEF,LB,65,67,32,54,60,64,67
+Trai Hume,Sunderland,Northern Ireland,23,DEF,RB,73,81,37,61,67,70,79
+Timothee Pembele,Sunderland,France,22,DEF,RB,69,80,49,63,71,64,62
+Niall Huggins,Sunderland,Wales,24,DEF,LB,68,83,52,58,70,63,62
+Granit Xhaka,Sunderland,Switzerland,32,MID,CDM,86,50,75,85,74,79,82
+Pierre Ekwah,Sunderland,France,23,MID,CM,68,61,65,64,66,62,72
+Habib Diarra,Sunderland,Senegal,21,MID,CM,73,68,63,69,73,69,70
+Enzo Le Fee,Sunderland,France,25,MID,CM,77,63,57,78,80,62,57
+Enes Unal,Bournemouth,Turkiye,28,ATT,SNT,78,67,80,68,77,40,80
+Dan Neil,Sunderland,England,23,MID,CDM,73,73,64,66,72,68,77
+Alan Browne,Sunderland,Ireland,30,MID,CM,70,70,69,70,72,69,78
+Jay Matete,Sunderland,England,24,MID,CM,64,73,55,61,70,62,67
+Abdoullah Ba,Sunderland,France,22,ATT,RW,68,74,60,63,71,56,62
+Chris Rigg,Sunderland,England,18,MID,CM,61,61,54,60,65,52,57
+Simon Adingra,Sunderland,Ivory Coast,23,ATT,RW,76,88,70,69,80,30,52
+Romaine Mundle,Sunderland,England,22,ATT,LW,64,77,56,57,71,38,55
+Chemsdine Talbi,Sunderland,Belgium,20,ATT,RW,63,79,52,57,71,29,40
+Patrick Roberts,Sunderland,England,28,ATT,RW,71,81,65,66,77,28,44
+Ian Poveda,Sunderland,Colombia,25,ATT,RW,69,76,56,60,74,33,54
+Eliezer Mayenda,Sunderland,Spain,20,ATT,SNT,60,53,60,54,61,29,59
+Nazariy Rusyn,Sunderland,Ukraine,26,ATT,SNT,66,77,66,45,64,20,53
