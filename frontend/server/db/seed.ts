@@ -62,6 +62,21 @@ await db
   .values(positionData)
   .returning()
 
+// Seed event types (map common match events to ids)
+const eventTypes = [
+  { name: 'goal' },
+  { name: 'shot' },
+  { name: 'miss' },
+  { name: 'yellow' },
+  { name: 'red' },
+  { name: 'foul' },
+  { name: 'injury' },
+]
+await db
+  .insert(schema.eventType)
+  .values(eventTypes)
+  .returning()
+
 // Seed Teams and Players
 for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
   const league = seededLeagues[leagueIndex]
@@ -170,5 +185,4 @@ for (const league of seededLeagues) {
   }
 }
 
-console.log('Database seeded successfully!')
 process.exit(0)

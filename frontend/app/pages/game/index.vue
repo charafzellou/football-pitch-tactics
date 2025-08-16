@@ -36,42 +36,41 @@ async function confirmTacticAndSimulate() {
       color: 'error',
     })
     return
-  }
-  if (!selectedTactic.value) {
+  } else if (!selectedTactic.value) {
     useToast().add({
       title: 'No tactic selected',
       description: 'Please select a tactic.',
       color: 'error',
     })
     return
+  } else if (selectedPlayers.value.length === 0) {
+    useToast().add({
+      color: 'error',
+      icon: 'i-lucide-octagon-x',
+      title: 'Invalid lineup',
+      description: 'Please select players for the lineup.'
+    })
+    return
+  } else if (selectedPlayers.value.length < 11 || selectedPlayers.value.length > 11) {
+    useToast().add({
+      color: 'error',
+      icon: 'i-lucide-octagon-x',
+      title: 'Invalid lineup',
+      description: 'Please select 11 players for the lineup.'
+    })
+    return
+  } else {
+    // Save tactic
+    await $fetch(`/api/team/${team.value.id}/tactics`, {
+      method: 'PUT',
+      body: { tactics: selectedTactic.value },
+    })
+    navigateTo('/matchday')
   }
-  // Save tactic
-  await $fetch(`/api/team/${team.value.id}/tactics`, {
-    method: 'PUT',
-    body: { tactics: selectedTactic.value },
-  })
-  await playNextMatch()
 }
 
 async function playNextMatch() {
   try {
-    if (selectedPlayers.value.length === 0) {
-      useToast().add({
-        color: 'error',
-        icon: 'i-lucide-octagon-x',
-        title: 'Invalid lineup',
-        description: 'Please select players for the lineup.'
-      })
-      return
-    } else if (selectedPlayers.value.length < 11 || selectedPlayers.value.length > 11) {
-      useToast().add({
-        color: 'error',
-        icon: 'i-lucide-octagon-x',
-        title: 'Invalid lineup',
-        description: 'Please select 11 players for the lineup.'
-      })
-      return
-    }
     const result = await $fetch('/api/match/simulate', { method: 'POST', body: { teamId: team.value?.id, opponentId: nextMatch.value?.awayTeamId, tactic: selectedTactic.value, lineup: selectedPlayers.value } })
     await refreshSchedule()
     // refresh opponent info after schedule updates

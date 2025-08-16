@@ -22,6 +22,20 @@
       "when": 1754745446999,
       "tag": "0002_groovy_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1755348972052,
+      "tag": "0003_watery_golden_guardian",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1755351746291,
+      "tag": "0004_late_quasar",
+      "breakpoints": true
     }
   ]
 }

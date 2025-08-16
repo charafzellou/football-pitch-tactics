@@ -71,23 +71,67 @@ export function simulateMatch(
   let homeScore = 0
   let awayScore = 0
 
-  for (let minute = 1; minute <= 90; minute += 5) {
+  for (let minute = 1; minute <= 90; minute++) {
     // Attack chance: attack stat + random, defence reduces chance
     const homeChance = homeStats.attack + Math.random() * 10 - awayStats.defence
     const awayChance = awayStats.attack + Math.random() * 10 - homeStats.defence
 
-    if (homeChance > 80 && Math.random() > 0.7) {
-      homeScore++
-      // Pick random attacker
-      const scorer = homeLineup.filter(p => p.position === 'Forward' || p.position === 'Attacker')[Math.floor(Math.random() * homeTeam.tactic.formation.FW)]
-      events.push({ minute, eventType: 'goal', teamId: homeTeam.id, playerId: scorer?.id })
+    // Generate shots and possible goals
+    if (homeChance > 70 && Math.random() > 0.6) {
+      // home had a shot
+      const attackerPool = homeLineup.filter(p => ['Forward', 'Attacker', 'Forward'].includes(p.position) || p.position === 'Attacker')
+      const shooter = attackerPool[Math.floor(Math.random() * Math.max(1, attackerPool.length))]
+      // chance to score based on attack minus defence
+      const scoreProb = Math.min(0.9, Math.max(0.05, (homeStats.attack - awayStats.defence) / 100 + Math.random() * 0.2))
+      if (Math.random() < scoreProb) {
+        homeScore++
+        events.push({ minute, eventType: 'goal', teamId: homeTeam.id, playerId: shooter?.id })
+      } else {
+        events.push({ minute, eventType: 'shot', teamId: homeTeam.id, playerId: shooter?.id })
+        // maybe a miss
+        if (Math.random() > 0.8) events.push({ minute, eventType: 'miss', teamId: homeTeam.id, playerId: shooter?.id })
+      }
     }
-    if (awayChance > 80 && Math.random() > 0.7) {
-      awayScore++
-      const scorer = awayLineup.filter(p => p.position === 'Forward' || p.position === 'Attacker')[Math.floor(Math.random() * awayTeam.tactic.formation.FW)]
-      events.push({ minute, eventType: 'goal', teamId: awayTeam.id, playerId: scorer?.id })
+
+    if (awayChance > 70 && Math.random() > 0.6) {
+      const attackerPool = awayLineup.filter(p => ['Forward', 'Attacker', 'Forward'].includes(p.position) || p.position === 'Attacker')
+      const shooter = attackerPool[Math.floor(Math.random() * Math.max(1, attackerPool.length))]
+      const scoreProb = Math.min(0.9, Math.max(0.05, (awayStats.attack - homeStats.defence) / 100 + Math.random() * 0.2))
+      if (Math.random() < scoreProb) {
+        awayScore++
+        events.push({ minute, eventType: 'goal', teamId: awayTeam.id, playerId: shooter?.id })
+      } else {
+        events.push({ minute, eventType: 'shot', teamId: awayTeam.id, playerId: shooter?.id })
+        if (Math.random() > 0.8) events.push({ minute, eventType: 'miss', teamId: awayTeam.id, playerId: shooter?.id })
+      }
     }
-    // Add more event types (yellow/red cards, etc.) as needed
+
+    // Fouls / cards / injuries
+    if (Math.random() > 0.995) {
+      // red card rare
+      const team = Math.random() > 0.5 ? homeTeam : awayTeam
+      const lineup = team === homeTeam ? homeLineup : awayLineup
+      const player = lineup[Math.floor(Math.random() * lineup.length)]
+      events.push({ minute, eventType: 'red', teamId: team.id, playerId: player?.id })
+    } else if (Math.random() > 0.98) {
+      // yellow card
+      const team = Math.random() > 0.5 ? homeTeam : awayTeam
+      const lineup = team === homeTeam ? homeLineup : awayLineup
+      const player = lineup[Math.floor(Math.random() * lineup.length)]
+      events.push({ minute, eventType: 'yellow', teamId: team.id, playerId: player?.id })
+    } else if (Math.random() > 0.997) {
+      // injury
+      const team = Math.random() > 0.5 ? homeTeam : awayTeam
+      const lineup = team === homeTeam ? homeLineup : awayLineup
+      const player = lineup[Math.floor(Math.random() * lineup.length)]
+      events.push({ minute, eventType: 'injury', teamId: team.id, playerId: player?.id })
+    } else if (Math.random() > 0.99) {
+      // foul
+      const team = Math.random() > 0.5 ? homeTeam : awayTeam
+      const lineup = team === homeTeam ? homeLineup : awayLineup
+      const player = lineup[Math.floor(Math.random() * lineup.length)]
+      events.push({ minute, eventType: 'foul', teamId: team.id, playerId: player?.id })
+    }
   }
 
   return {

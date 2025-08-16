@@ -109,6 +109,7 @@ export const matches = sqliteTable('matches', {
     .references(() => teams.id),
   homeScore: integer('home_score'),
   awayScore: integer('away_score'),
+  played: integer('played').notNull().default(0),
   season: integer('season').notNull().references(() => season.id),
   matchDate: integer('match_date', { mode: 'timestamp' }).notNull(),
 })

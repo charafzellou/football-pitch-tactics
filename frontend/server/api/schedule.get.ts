@@ -1,6 +1,6 @@
 import { db } from '../../server/db'
 import { game, matches } from '../../server/db/schema'
-import { or, eq, and, gte } from 'drizzle-orm'
+import { or, eq, and, gte, isNull } from 'drizzle-orm'
 
 export default defineEventHandler(async () => {
   const gameState = await db.query.game.findFirst()
@@ -17,7 +17,9 @@ export default defineEventHandler(async () => {
         eq(matches.homeTeamId, gameState.playerTeamId),
         eq(matches.awayTeamId, gameState.playerTeamId),
       ),
-      gte(matches.matchDate, gameState.currentDate),
+  gte(matches.matchDate, gameState.currentDate),
+  isNull(matches.homeScore),
+  eq(matches.played, 0),
     ),
     orderBy: (matches, { asc }) => [asc(matches.matchDate)],
   })

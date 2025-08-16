@@ -1,15 +1,8 @@
 
 import { db } from '../../../server/db'
-import { matches, players, teams, matchEvents } from '../../../server/db/schema'
+import { matches, players, teams, matchEvents, eventType, game } from '../../../server/db/schema'
 import { simulateMatch, Tactic } from '../../../server/core/match-engine'
 import { eq, and, isNull } from 'drizzle-orm'
-
-type bodyEvent = {
-  teamId: number,
-  opponentId: number,
-  tactic: Tactic,
-  lineup: number[],
-}
 
 export default defineEventHandler(async (event) => {
   const nextMatchToPlay = await db.query.matches.findFirst({
@@ -46,21 +39,69 @@ export default defineEventHandler(async (event) => {
   await db
     .update(matches)
     .set({
-      homeScore: result.homeScore,
-      awayScore: result.awayScore,
+  homeScore: result.homeScore,
+  awayScore: result.awayScore,
+  played: 1,
     })
     .where(eq(matches.id, nextMatchToPlay.id))
 
   // Insert match events
+  // Ensure event types exist and build a mapping from name -> id
+  const existingTypes = await db.query.eventType.findMany()
+  const typeMap: Record<string, number> = {}
+  for (const t of existingTypes) {
+    // @ts-ignore
+    typeMap[String(t.name)] = t.id
+  }
+
+  // If result.events contains new types, insert them
+  const uniqueTypes = Array.from(new Set(result.events.map((e: any) => String(e.eventType))))
+  for (const typeName of uniqueTypes) {
+    if (!typeMap[typeName]) {
+      const inserted = await db.insert(eventType).values({ name: typeName }).returning()
+      typeMap[typeName] = inserted[0].id
+    }
+  }
+
   for (const event of result.events) {
+    const eventTypeId = typeof event.eventType === 'string' ? typeMap[String(event.eventType)] : event.eventType
     await db.insert(matchEvents).values({
       matchId: nextMatchToPlay.id,
       minute: event.minute,
-      eventType: typeof event.eventType === 'string' ? parseInt(event.eventType, 10) : event.eventType,
+      eventType: eventTypeId,
       playerId: event.playerId ?? null,
       teamId: typeof event.teamId === 'string' ? parseInt(event.teamId, 10) : event.teamId,
     })
   }
+  // Advance game currentDate to after this match so schedule moves forward
+  const gameState = await db.query.game.findFirst()
+  if (gameState) {
+    // matchDate may be a number, string, or Date; normalize to Date
+    let matchDateObj = new Date(nextMatchToPlay.matchDate as any)
+    if (isNaN(matchDateObj.getTime())) {
+      // fallback: try numeric parse
+      const n = Number(nextMatchToPlay.matchDate)
+      if (!isNaN(n)) matchDateObj = new Date(n)
+    }
+    if (isNaN(matchDateObj.getTime())) {
+      // final fallback to now
+      matchDateObj = new Date()
+    }
+    const newCurrent = new Date(matchDateObj.getTime() + 1000)
+    await db.update(game).set({ currentDate: newCurrent }).where(eq(game.id, gameState.id))
+  }
 
-  return { ...nextMatchToPlay, ...result }
+  // Read back the updated match from DB and its events separately to avoid relational builder issues
+  const updatedMatchRow = await db.query.matches.findFirst({ where: eq(matches.id, nextMatchToPlay.id) })
+  const updatedMatchEvents = await db.query.matchEvents.findMany({ where: eq(matchEvents.matchId, nextMatchToPlay.id) })
+
+  const updatedMatch = {
+    ...updatedMatchRow,
+    matchEvents: updatedMatchEvents,
+  }
+
+  // Debug log
+  console.log('Simulate result saved, updatedMatch:', updatedMatch)
+
+  return { updatedMatch, simulated: result }
 })
