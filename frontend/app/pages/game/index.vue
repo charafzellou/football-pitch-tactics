@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { UButton } from '#components'
 import { ref, computed, onMounted } from 'vue'
+import { useToast } from '#imports'
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
@@ -25,17 +26,23 @@ const { data: opponentTeam, refresh: refreshOpponent } = useFetch(() => `/api/te
   immediate: !!nextMatch.value?.awayTeamId,
 })
 
-const showTacticModal = ref(false)
 const selectedTactic = ref('')
-const tacticError = ref('')
 
 async function confirmTacticAndSimulate() {
-  if (!selectedTactic.value) {
-    tacticError.value = 'Please select a tactic.'
+  if (!team.value) {
+    useToast().add({
+      title: 'Team data not loaded',
+      description: 'Please refresh the page.',
+      color: 'error',
+    })
     return
   }
-  if (!team.value) {
-    tacticError.value = 'Team data not loaded.'
+  if (!selectedTactic.value) {
+    useToast().add({
+      title: 'No tactic selected',
+      description: 'Please select a tactic.',
+      color: 'error',
+    })
     return
   }
   // Save tactic
@@ -43,8 +50,6 @@ async function confirmTacticAndSimulate() {
     method: 'PUT',
     body: { tactics: selectedTactic.value },
   })
-  showTacticModal.value = true
-  tacticError.value = ''
   await playNextMatch()
 }
 
@@ -82,14 +87,24 @@ async function playNextMatch() {
       typeof (result as any).homeScore !== 'undefined' &&
       typeof (result as any).awayScore !== 'undefined'
     ) {
-      alert(`Match Result: ${(result as any).homeScore} - ${(result as any).awayScore}`)
+      useToast().add({
+        title: 'Match Result',
+        description: `${(result as any).homeScore} - ${(result as any).awayScore}`,
+        color: 'info',
+      })
     } else if (result && (result as any).message) {
-      alert((result as any).message)
-    } else {
-      alert('Match simulated.')
+      useToast().add({
+        title: 'Match Simulation Error',
+        description: (result as any).message,
+        color: 'info',
+      })
     }
   } catch (e) {
-    alert('Error simulating match.')
+    useToast().add({
+      title: 'Error',
+      description: 'Error simulating match.',
+      color: 'error',
+    })
   }
 }
 
@@ -244,6 +259,7 @@ const lineupColumns = [
                 icon: 'i-lucide-octagon-x',
                 title: 'Player removed',
                 description: `You removed ${row.original.name} from ${row.original.position}`,
+                duration: 500,
               })
             } else {
               selectedPlayers.value.push(row.original.id)
@@ -252,6 +268,7 @@ const lineupColumns = [
                 icon: 'i-lucide-check',
                 title: 'Player selected',
                 description: `You selected ${row.original.name} as ${row.original.position}`,
+                duration: 500,
               })
             }
           }
@@ -275,7 +292,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+
+  <div class="grid grid-cols-1 gap-4">
     <h1 class="text-2xl font-bold mb-4">
       Dashboard
     </h1>
@@ -303,42 +321,30 @@ onMounted(async () => {
         <p>
           Date: <strong>{{ new Date(nextMatch.matchDate).toLocaleDateString() }}</strong>
         </p>
-        <UModal :open="showTacticModal">
-          <UButton class="mt-4" label="Play Next Match" @click="confirmTacticAndSimulate" />
-          <template #title>
-            Game Summary
-          </template>
-          <template #content>
-            <div>
-              <p>Selected Tactic: <strong>{{ selectedTactic }}</strong></p>
-              <p>Team: <strong>{{ team.name }}</strong></p>
-              <p>Next Match: <strong>{{ opponentTeam?.name ?? nextMatch?.awayTeamId }}</strong></p>
-            </div>
-            <UButton label="Close" @click="showTacticModal = false" />
-          </template>
-        </UModal>
+        <UButton class="mt-4" label="Play Next Match" @click="confirmTacticAndSimulate" />
       </UCard>
     </div>
 
+
     <UCard>
-      <template #header>
-        Select Tactic & Lineup
-      </template>
-      <div>
-        <div class="grid grid-cols-1 gap-4">
-          <select v-model="selectedTactic" class="border rounded px-2 py-1">
-            <option value="" disabled>Select tactic</option>
-            <option v-for="t in tacticsList" :key="t.name" :value="t.name">
-              {{ t.name }} ({{ t.formation.DEF }}-{{ t.formation.MID }}-{{ t.formation.ATT }})
-            </option>
-            <div v-if="tacticError" class="text-red-600 mt-2">{{ tacticError }}</div>
-          </select>
-          <h2 class="text-lg mb-2">
-            {{ team?.name }} Squad
-          </h2>
-          <UTable v-if="team" :data="team.squad" :columns="lineupColumns" />
-        </div>
+      <div class="grid grid-cols-2 gap-4">
+        <p>
+          {{ selectedPlayers.length }} players selected for lineup
+        </p>
+        <select v-model="selectedTactic" class="border rounded px-2 py-1">
+          <option value="" disabled>Select tactic</option>
+          <option v-for="t in tacticsList" :key="t.name" :value="t.name">
+            {{ t.name }} ({{ t.formation.DEF }}-{{ t.formation.MID }}-{{ t.formation.ATT }})
+          </option>
+          <div v-if="!selectedTactic" class="text-red-600 mt-2">Please select a tactic.</div>
+        </select>
       </div>
+    </UCard>
+    <UCard>
+      <h2 class="text-lg mb-2">
+        {{ team?.name }} Squad
+      </h2>
+      <UTable v-if="team" :data="team.squad" :columns="lineupColumns" />
     </UCard>
   </div>
 </template>

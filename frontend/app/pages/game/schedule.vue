@@ -1,14 +1,28 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
 
+interface Team {
+  id: string | number
+  leagueId: string | number
+  name?: string
+}
+
 const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
-const { data: teams, refresh: refreshTeams } = useFetch('/api/teams')
+// first get game state and player's team so we can request teams for the correct league
+const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
+const { data: playerTeam, refresh: refreshPlayerTeam } = useFetch<Team | null>(() => gameState.value?.playerTeamId ? `/api/team/${gameState.value.playerTeamId}` : '', {
+  immediate: false,
+})
+const { data: teams, refresh: refreshTeams } = useFetch<Team[]>(() => playerTeam.value?.leagueId ? `/api/teams?leagueId=${playerTeam.value.leagueId}` : '', {
+  immediate: false,
+})
 
 onMounted(async () => {
-  await Promise.all([
-    refreshSchedule(),
-    refreshTeams(),
-  ])
+  // refresh schedule, then load game state -> player team -> teams (by league)
+  await refreshSchedule()
+  await refreshGameState()
+  await refreshPlayerTeam()
+  await refreshTeams()
 })
 
 const columns = [
@@ -19,10 +33,11 @@ const columns = [
 ]
 
 const teamMap = computed(() => {
-  const map: Record<number, string> = {};
-  if (teams.value) {
+  const map: Record<string, string> = {};
+  if (Array.isArray(teams.value)) {
     for (const team of teams.value) {
-      map[team.id] = team.name;
+      // store keys as strings only
+      map[String(team.id)] = team.name ?? '';
     }
   }
   return map;
@@ -31,9 +46,10 @@ const teamMap = computed(() => {
 const formattedSchedule = computed(() =>
   schedule.value?.map(match => ({
     ...match,
-    matchDate: new Date(match.matchDate).toLocaleDateString(),
-    homeTeam: teamMap.value[match.homeTeamId] || match.homeTeamId,
-    awayTeam: teamMap.value[match.awayTeamId] || match.awayTeamId,
+    // use ISO date (YYYY-MM-DD) to avoid timezone/locale differences between server and client
+    matchDate: new Date(match.matchDate).toISOString().slice(0, 10),
+    homeTeam: teamMap.value[String(match.homeTeamId)] ?? match.homeTeamId,
+    awayTeam: teamMap.value[String(match.awayTeamId)] ?? match.awayTeamId,
     score: match.homeScore !== null ? `${match.homeScore} - ${match.awayScore}` : 'TBD',
   })),
 )
