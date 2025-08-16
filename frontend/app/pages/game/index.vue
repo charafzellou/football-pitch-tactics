@@ -98,7 +98,8 @@ function formatMoney(value: number) {
 }
 
 const lineupColumns = [
-  { accessorKey: 'name', id: 'name',
+  {
+    accessorKey: 'name', id: 'name',
     header: ({ column }: { column: any }) => {
       const isSorted = column.getIsSorted()
       return h(UButton, {
@@ -114,8 +115,9 @@ const lineupColumns = [
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
     }
-   },
-  { accessorKey: 'age', id: 'age',
+  },
+  {
+    accessorKey: 'age', id: 'age',
     header: ({ column }: { column: any }) => {
       const isSorted = column.getIsSorted()
       return h(UButton, {
@@ -131,8 +133,9 @@ const lineupColumns = [
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
     }
-   },
-  { accessorKey: 'position', id: 'position',
+  },
+  {
+    accessorKey: 'position', id: 'position',
     header: ({ column }: { column: any }) => {
       const isSorted = column.getIsSorted()
       return h(UButton, {
@@ -166,8 +169,9 @@ const lineupColumns = [
       // both unknown -> fallback to string compare
       return a.localeCompare(b)
     }
-   },
-  { accessorKey: 'skillLevel', id: 'skillLevel',
+  },
+  {
+    accessorKey: 'skillLevel', id: 'skillLevel',
     header: ({ column }: { column: any }) => {
       const isSorted = column.getIsSorted()
       return h(UButton, {
@@ -183,7 +187,7 @@ const lineupColumns = [
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
     }
-   },
+  },
   {
     accessorKey: 'stamina', id: 'stamina',
     header: ({ column }: { column: any }) => {
