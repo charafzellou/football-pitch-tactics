@@ -24,15 +24,20 @@ help:
 setup:
 	@echo "Setting up the project..."
 	@curl -fsSL https://bun.sh/install | bash
-	@bun install --cwd frontend/
+	@rm -rf frontend/node_modules frontend/bun.lock
+	@rm -rf frontend/.data frontend/.nuxt frontend/.output
 	@rm -f frontend/db.sqlite
+	@bun install --cwd frontend/
 	@bun run --cwd frontend/ db:setup
 
 ##########################################
 
 frontend-run:
 	@echo "Running frontend..."
-	@rm -rf frontend/.data frontend/.nuxt frontend/.output && bun run --cwd frontend/ dev
+	@rm -rf frontend/.data frontend/.nuxt frontend/.output
+	@rm -f frontend/db.sqlite
+	@bun run --cwd frontend/ db:setup
+	@bun run --cwd frontend/ dev
 
 frontend-build:
 	@echo "Building binary frontend..."
