@@ -98,15 +98,128 @@ function formatMoney(value: number) {
 }
 
 const lineupColumns = [
-  { accessorKey: 'name', header: 'Name', id: 'name' },
-  { accessorKey: 'age', header: 'Age', id: 'age' },
-  { accessorKey: 'position', header: 'Position', id: 'position' },
-  { accessorKey: 'skillLevel', header: 'Skill', id: 'skillLevel' },
-  { accessorKey: 'stamina', header: 'Stamina', id: 'stamina' },
+  { accessorKey: 'name', id: 'name',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Name',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    }
+   },
+  { accessorKey: 'age', id: 'age',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Age',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    }
+   },
+  { accessorKey: 'position', id: 'position',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Position',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    }
+    ,
+    // custom sorting to enforce GK, DEF, MID, ATT ordering
+    sortingFn: (rowA: any, rowB: any, columnId: string) => {
+      const order = ['GK', 'DEF', 'MID', 'ATT']
+      const aRaw = rowA.getValue(columnId)
+      const bRaw = rowB.getValue(columnId)
+      const a = String(aRaw ?? '').toUpperCase().trim()
+      const b = String(bRaw ?? '').toUpperCase().trim()
+      const ia = order.indexOf(a)
+      const ib = order.indexOf(b)
+      // both known positions
+      if (ia !== -1 && ib !== -1) return ia === ib ? 0 : ia > ib ? 1 : -1
+      // one known, one unknown -> known comes first
+      if (ia !== -1) return -1
+      if (ib !== -1) return 1
+      // both unknown -> fallback to string compare
+      return a.localeCompare(b)
+    }
+   },
+  { accessorKey: 'skillLevel', id: 'skillLevel',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Skill Level',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    }
+   },
+  {
+    accessorKey: 'stamina', id: 'stamina',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Stamina',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    }
+  },
   {
     accessorKey: 'marketValue',
-    header: 'Market Value',
     id: 'marketValue',
+    header: ({ column }: { column: any }) => {
+      const isSorted = column.getIsSorted()
+      return h(UButton, {
+        color: 'neutral',
+        variant: 'ghost',
+        label: 'Market Value',
+        icon: isSorted
+          ? isSorted === 'asc'
+            ? 'i-lucide-arrow-up-narrow-wide'
+            : 'i-lucide-arrow-down-wide-narrow'
+          : 'i-lucide-arrow-up-down',
+        class: '-mx-2.5',
+        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
+      })
+    },
     cell: ({ row }: { row: any }) => formatMoney(row.original.marketValue)
   },
   {
