@@ -55,9 +55,6 @@ async function confirmTacticAndSimulate() {
 
 async function playNextMatch() {
   try {
-    console.log('Selected Tactic:', selectedTactic.value)
-    console.log('Selected Players:', selectedPlayers.value)
-    console.log('Selected Players Length:', selectedPlayers.value.length)
     if (selectedPlayers.value.length === 0) {
       useToast().add({
         color: 'error',
