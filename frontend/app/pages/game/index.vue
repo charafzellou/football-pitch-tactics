@@ -1,15 +1,29 @@
 <script setup lang="ts">
-import { toast } from '#build/ui'
 import { UButton } from '#components'
 import { ref, computed, onMounted } from 'vue'
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
 })
+const { data: standings, refresh: refreshStandings } = useFetch(() => `/api/standings?leagueId=${team.value?.leagueId ?? ''}`, {
+  immediate: !!team.value?.leagueId,
+})
 const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
 const { data: tacticsList, refresh: refreshTactics } = useFetch('/api/tactics')
 
 const nextMatch = computed(() => schedule.value?.[0])
+
+const leaguePosition = computed(() => {
+  if (!standings.value || !team.value) return null
+  // standings is an array sorted by points desc, goalDifference desc
+  const idx = (standings.value as any[]).findIndex(s => s.teamName === team.value!.name)
+  return idx === -1 ? null : idx + 1
+})
+
+// fetch opponent team by nextMatch awayTeamId (declared after nextMatch so computed is available)
+const { data: opponentTeam, refresh: refreshOpponent } = useFetch(() => `/api/team/${nextMatch.value?.awayTeamId}`, {
+  immediate: !!nextMatch.value?.awayTeamId,
+})
 
 const showTacticModal = ref(false)
 const selectedTactic = ref('')
@@ -36,6 +50,9 @@ async function confirmTacticAndSimulate() {
 
 async function playNextMatch() {
   try {
+    console.log('Selected Tactic:', selectedTactic.value)
+    console.log('Selected Players:', selectedPlayers.value)
+    console.log('Selected Players Length:', selectedPlayers.value.length)
     if (selectedPlayers.value.length === 0) {
       useToast().add({
         color: 'error',
@@ -55,7 +72,11 @@ async function playNextMatch() {
     }
     const result = await $fetch('/api/match/simulate', { method: 'POST', body: { teamId: team.value?.id, opponentId: nextMatch.value?.awayTeamId, tactic: selectedTactic.value, lineup: selectedPlayers.value } })
     await refreshSchedule()
+    // refresh opponent info after schedule updates
+    await refreshOpponent()
     await refreshTeam()
+    // refresh standings so league position updates after the match
+    await refreshStandings()
     if (
       result &&
       typeof (result as any).homeScore !== 'undefined' &&
@@ -118,7 +139,7 @@ const lineupColumns = [
             }
           }
         },
-        selectedPlayers.value.includes(row.original.id) ? 'Deselect' : 'Select'
+        { default: () => (selectedPlayers.value.includes(row.original.id) ? 'Deselect' : 'Select') }
       )
     }
   }
@@ -130,6 +151,8 @@ onMounted(async () => {
   await refreshGameState()
   await refreshTeam()
   await refreshSchedule()
+  await refreshStandings()
+  await refreshOpponent()
   await refreshTactics()
 })
 </script>
@@ -145,7 +168,7 @@ onMounted(async () => {
           Club Status
         </template>
         <p>
-          League Position: <strong>TODO</strong>
+          League Position: <strong>{{ leaguePosition ?? '—' }}</strong>
         </p>
         <p>
           Bank Balance: <strong>{{ new Intl.NumberFormat('en-US', {
@@ -158,7 +181,7 @@ onMounted(async () => {
           Next Match
         </template>
         <p>
-          vs <strong>{{ nextMatch.awayTeamId }}</strong>
+          vs <strong>{{ opponentTeam?.name ?? nextMatch.awayTeamId }}</strong>
         </p>
         <p>
           Date: <strong>{{ new Date(nextMatch.matchDate).toLocaleDateString() }}</strong>
@@ -172,7 +195,7 @@ onMounted(async () => {
             <div>
               <p>Selected Tactic: <strong>{{ selectedTactic }}</strong></p>
               <p>Team: <strong>{{ team.name }}</strong></p>
-              <p>Next Match: <strong>{{ nextMatch?.awayTeamId }}</strong></p>
+              <p>Next Match: <strong>{{ opponentTeam?.name ?? nextMatch?.awayTeamId }}</strong></p>
             </div>
             <UButton label="Close" @click="showTacticModal = false" />
           </template>
