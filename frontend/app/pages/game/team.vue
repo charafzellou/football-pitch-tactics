@@ -8,7 +8,7 @@ const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameSta
 })
 
 function formatMoney(value: number) {
-  return value?.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) ?? ''
+  return new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value ?? 0)
 }
 
 const lineupColumns = [
@@ -161,7 +161,7 @@ const lineupColumns = [
 async function sellPlayer(playerId: number) {
   const player = team.value?.squad.find((p: any) => p.id === playerId)
   if (!player) return
-  const res = await $fetch(`/api/transfers`, {
+  const res = await $fetch<{ success: boolean; buyerTeam: string; salePrice: number }>(`/api/transfers`, {
     method: 'POST',
     body: { playerId, action: 'sell' },
   })
@@ -169,7 +169,7 @@ async function sellPlayer(playerId: number) {
   if (res && res.success) {
     useToast().add({
       title: 'Player Sold',
-      description: `${player.name} (${player.position}) sold for ${formatMoney(player.marketValue)} to ${res.buyerTeam}`,
+      description: `${player.name} (${player.position}) sold for ${formatMoney(res.salePrice)} to ${res.buyerTeam}`,
       color: 'success',
       icon: 'i-lucide-circle-check',
     })

@@ -4,13 +4,25 @@ import { faker } from '@faker-js/faker'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
+interface SeedPlayer {
+  name: string
+  age: number
+  position: string
+  skillLevel: number
+}
+
+interface LeagueSeedData {
+  teams: string[]
+  players: Record<string, SeedPlayer[]>
+}
+
 // Load league data from JSON files
 const premierLeagueData = JSON.parse(
   readFileSync(join(__dirname, 'data/premier-league.json'), 'utf-8')
-)
+) as LeagueSeedData
 const laLigaData = JSON.parse(
   readFileSync(join(__dirname, 'data/la-liga.json'), 'utf-8')
-)
+) as LeagueSeedData
 
 // Clear existing data in correct order (to avoid foreign key constraint issues)
 await db.delete(schema.matchEvents)
@@ -19,6 +31,7 @@ await db.delete(schema.eventType)
 await db.delete(schema.game)
 await db.delete(schema.season)
 await db.delete(schema.players)
+await db.delete(schema.positions)
 await db.delete(schema.teams)
 await db.delete(schema.leagues)
 await db.delete(schema.countries)
@@ -30,10 +43,16 @@ const seededCountries = await db
   .values(countryData)
   .returning()
 
+const england = seededCountries[0]
+const spain = seededCountries[1]
+
+if (!england || !spain)
+  throw new Error('Failed to seed countries')
+
 // Seed Leagues
 const leagueData = [
-  { name: 'Premier League', countryId: seededCountries[0].id },
-  { name: 'La Liga', countryId: seededCountries[1].id },
+  { name: 'Premier League', countryId: england.id },
+  { name: 'La Liga', countryId: spain.id },
 ]
 const seededLeagues = await db
   .insert(schema.leagues)
@@ -80,12 +99,18 @@ await db
 // Seed Teams and Players
 for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
   const league = seededLeagues[leagueIndex]
+  if (!league)
+    continue
+
   const leagueData = leagueIndex === 0 ? premierLeagueData : laLigaData
   const teamNames = leagueData.teams
   const playersData = leagueData.players
 
   for (let i = 0; i < teamNames.length; i++) {
     const teamName = teamNames[i]
+    if (!teamName)
+      continue
+
     const team = await db
       .insert(schema.teams)
       .values({
@@ -94,6 +119,10 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
         bankBalance: faker.number.int({ min: 1000000, max: 50000000 }),
       })
       .returning()
+
+    const insertedTeam = team[0]
+    if (!insertedTeam)
+      throw new Error(`Failed to seed team: ${teamName}`)
 
     // Use real players if available, otherwise generate fake ones
     const teamPlayers = playersData[teamName]
@@ -110,22 +139,25 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
             min: playerData.skillLevel * 50000,
             max: playerData.skillLevel * 250000
           }),
-          teamId: team[0].id,
+          teamId: insertedTeam.id,
         })
       }
     } else {
       // Generate fake players for teams without real data
+      const fallbackPositions = ['GK', 'DEF', 'MID', 'ATT'] as const
       for (let j = 0; j < 22; j++) {
+        const position = fallbackPositions[faker.number.int({ min: 0, max: 3 })]
+        if (!position)
+          throw new Error('Failed to generate fallback position')
+
         await db.insert(schema.players).values({
           name: faker.person.fullName(),
           age: faker.number.int({ min: 18, max: 35 }),
-          position: ['GK', 'DEF', 'MID', 'ATT'][
-            faker.number.int({ min: 0, max: 3 })
-          ],
+          position,
           skillLevel: faker.number.int({ min: 50, max: 79 }),
           stamina: 100,
           marketValue: faker.number.int({ min: 100000, max: 20000000 }),
-          teamId: team[0].id,
+          teamId: insertedTeam.id,
         })
       }
     }
@@ -134,7 +166,7 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
 
 // Generate a full season schedule for all leagues
 const generateSchedule = (teams: { id: number }[]) => {
-  const schedule = []
+  const schedule: Array<{ homeTeamId: number; awayTeamId: number; season: number; matchDate: Date }> = []
   const numTeams = teams.length
   const halfNumTeams = numTeams / 2
   const rounds = (numTeams - 1) * 2
@@ -145,6 +177,8 @@ const generateSchedule = (teams: { id: number }[]) => {
     for (let i = 0; i < halfNumTeams; i++) {
       const homeTeamId = teamIds[i]
       const awayTeamId = teamIds[numTeams - 1 - i]
+      if (typeof homeTeamId !== 'number' || typeof awayTeamId !== 'number')
+        continue
 
       if (round < rounds / 2) {
         schedule.push({

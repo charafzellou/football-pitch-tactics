@@ -9,8 +9,7 @@ export const useGameStore = defineStore('game', {
   actions: {
     async initialize() {
       const state = await $fetch('/api/game/state')
-      if (state)
-        this.userTeamId = state.playerTeamId
+      this.userTeamId = state?.playerTeamId ?? null
     },
   },
 })

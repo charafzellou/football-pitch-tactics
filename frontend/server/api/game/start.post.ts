@@ -11,6 +11,8 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  await db.delete(game)
+
   const newGame = await db
     .insert(game)
     .values({

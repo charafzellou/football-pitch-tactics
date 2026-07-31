@@ -1,5 +1,5 @@
 {
-  "name": "nuxt-app",
+  "name": "football-pitch-tactics",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,24 +16,25 @@
     "db:seed": "bun run server/db/seed.ts"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.9.0",
+    "@iconify-json/heroicons": "^1.2.3",
     "@iconify-json/lucide": "^1.2.121",
     "@iconify-json/simple-icons": "^1.2.92",
     "@libsql/client": "^0.17.4",
-    "@nuxt/ui": "^3.3.7",
-    "@pinia/nuxt": "^0.11.3",
-    "drizzle-orm": "^0.45.2",
-    "nuxt": "^4.5.1",
-    "pinia": "^3.0.4",
-    "vue-router": "^4.6.4",
-    "@faker-js/faker": "^9.9.0",
-    "@iconify-json/heroicons": "^1.2.3",
     "@nuxt/eslint": "^1.16.0",
     "@nuxt/eslint-config": "^1.16.0",
+    "@nuxt/ui": "^3.3.7",
+    "@pinia/nuxt": "^0.11.3",
     "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.5",
     "eslint-plugin-prettier": "^5.5.6",
+    "nuxt": "^4.5.1",
+    "pinia": "^3.0.4",
     "prettier": "^3.9.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.65.0",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^3.3.9"
   }
 }

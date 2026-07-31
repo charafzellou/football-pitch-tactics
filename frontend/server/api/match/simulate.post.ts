@@ -1,14 +1,23 @@
 
 import { db } from '../../../server/db'
 import { matches, players, teams, matchEvents, eventType, game } from '../../../server/db/schema'
-import { simulateMatch, Tactic } from '../../../server/core/match-engine'
+import { simulateMatch } from '../../../server/core/match-engine'
+import type { Tactic } from '../../../server/core/match-engine'
+import { TACTICS } from '../../../server/core/tactics'
 import { eq, and, isNull } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
-  const nextMatchToPlay = await db.query.matches.findFirst({
-    where: and(isNull(matches.homeScore)),
-    orderBy: (matches, { asc }) => [asc(matches.matchDate)],
-  })
+  const body = await readBody<{ matchId?: number | string }>(event)
+  const requestedMatchId = Number(body?.matchId)
+
+  const nextMatchToPlay = requestedMatchId
+    ? await db.query.matches.findFirst({
+        where: and(eq(matches.id, requestedMatchId), isNull(matches.homeScore)),
+      })
+    : await db.query.matches.findFirst({
+        where: and(isNull(matches.homeScore)),
+        orderBy: (matches, { asc }) => [asc(matches.matchDate)],
+      })
 
   if (!nextMatchToPlay) {
     return { message: 'No matches to simulate' }
@@ -19,7 +28,7 @@ export default defineEventHandler(async (event) => {
   const awaySquad = await db.query.players.findMany({ where: eq(players.teamId, nextMatchToPlay.awayTeamId) })
 
   // Fetch tactics
-  const tacticsList: Tactic[] = await $fetch('/api/tactics')
+  const tacticsList: Tactic[] = TACTICS
   const homeTeamData = await db.query.teams.findFirst({ where: eq(teams.id, nextMatchToPlay.homeTeamId) })
   const awayTeamData = await db.query.teams.findFirst({ where: eq(teams.id, nextMatchToPlay.awayTeamId) })
   if (!homeTeamData || !awayTeamData) {
@@ -28,8 +37,16 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Team not found for match',
     })
   }
-  const homeTactic = tacticsList.find(t => t.name === homeTeamData.tactics) || tacticsList[0]
-  const awayTactic = tacticsList.find(t => t.name === awayTeamData.tactics) || tacticsList[0]
+  const defaultTactic = tacticsList[0]
+  if (!defaultTactic) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'No tactics available for simulation',
+    })
+  }
+
+  const homeTactic = tacticsList.find(t => t.name === homeTeamData.tactics) || defaultTactic
+  const awayTactic = tacticsList.find(t => t.name === awayTeamData.tactics) || defaultTactic
 
   const result = simulateMatch(
     { id: homeTeamData.id, name: homeTeamData.name, squad: homeSquad, tactic: homeTactic },
@@ -59,18 +76,34 @@ export default defineEventHandler(async (event) => {
   for (const typeName of uniqueTypes) {
     if (!typeMap[typeName]) {
       const inserted = await db.insert(eventType).values({ name: typeName }).returning()
-      typeMap[typeName] = inserted[0].id
+      const insertedType = inserted[0]
+      if (!insertedType) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: `Failed to persist event type: ${typeName}`,
+        })
+      }
+
+      typeMap[typeName] = insertedType.id
     }
   }
 
   for (const event of result.events) {
     const eventTypeId = typeof event.eventType === 'string' ? typeMap[String(event.eventType)] : event.eventType
+    if (!eventTypeId) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Missing event type mapping for ${String(event.eventType)}`,
+      })
+    }
+
+    const resolvedTeamId = typeof event.teamId === 'string' ? parseInt(event.teamId, 10) : event.teamId
     await db.insert(matchEvents).values({
       matchId: nextMatchToPlay.id,
       minute: event.minute,
       eventType: eventTypeId,
       playerId: event.playerId ?? null,
-      teamId: typeof event.teamId === 'string' ? parseInt(event.teamId, 10) : event.teamId,
+      teamId: resolvedTeamId,
     })
   }
   // Advance game currentDate to after this match so schedule moves forward
@@ -103,5 +136,12 @@ export default defineEventHandler(async (event) => {
   // Debug log
   console.log('Simulate result saved, updatedMatch:', updatedMatch)
 
-  return { updatedMatch, simulated: result }
+  return {
+    updatedMatch,
+    simulated: result,
+    matchId: nextMatchToPlay.id,
+    homeScore: result.homeScore,
+    awayScore: result.awayScore,
+    events: result.events,
+  }
 })

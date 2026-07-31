@@ -7,7 +7,7 @@ interface Team {
   name?: string
 }
 
-const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
+const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule?includePlayed=true')
 // first get game state and player's team so we can request teams for the correct league
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: playerTeam, refresh: refreshPlayerTeam } = useFetch<Team | null>(() => gameState.value?.playerTeamId ? `/api/team/${gameState.value.playerTeamId}` : '', {

@@ -330,7 +330,7 @@ onMounted(async () => {
         <select v-model="selectedTactic" class="border rounded px-2 py-1">
           <option value="" disabled>Select tactic</option>
           <option v-for="t in tacticsList" :key="t.name" :value="t.name">
-            {{ t.name }} ({{ t.formation.DEF }}-{{ t.formation.MID }}-{{ t.formation.ATT }})
+            {{ t.name }} ({{ t.formation.DF }}-{{ t.formation.MF }}-{{ t.formation.FW }})
           </option>
           <div v-if="!selectedTactic" class="text-red-600 mt-2">Please select a tactic.</div>
         </select>
