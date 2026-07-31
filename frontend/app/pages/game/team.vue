@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { UButton } from '#components'
+import { UButton, UBadge } from '#components'
 import { onMounted, h } from 'vue'
 import { useToast } from '#imports'
+
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
@@ -9,6 +10,23 @@ const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameSta
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value ?? 0)
+}
+
+const positionColors: Record<string, 'sky' | 'emerald' | 'amber' | 'rose'> = {
+  GK: 'sky',
+  DEF: 'emerald',
+  MID: 'amber',
+  ATT: 'rose',
+}
+
+function statBar(value: number, max = 100) {
+  const pct = Math.min(100, Math.round((value / max) * 100))
+  return h('div', { class: 'flex items-center gap-2' }, [
+    h('span', { class: 'w-8 text-sm font-semibold tabular-nums' }, String(value)),
+    h('div', { class: 'app-stat-bar-track flex-1 min-w-16' }, [
+      h('div', { class: 'app-stat-bar-fill', style: `width: ${pct}%` }),
+    ]),
+  ])
 }
 
 const lineupColumns = [
@@ -64,8 +82,12 @@ const lineupColumns = [
         class: '-mx-2.5',
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
-    }
-    ,
+    },
+    cell: ({ row }: { row: any }) => {
+      const pos = String(row.original.position ?? '').toUpperCase().trim()
+      const color = positionColors[pos] ?? 'neutral'
+      return h(UBadge, { color, variant: 'soft', label: pos || '—', size: 'sm' })
+    },
     // custom sorting to enforce GK, DEF, MID, ATT ordering
     sortingFn: (rowA: any, rowB: any, columnId: string) => {
       const order = ['GK', 'DEF', 'MID', 'ATT']
@@ -100,7 +122,8 @@ const lineupColumns = [
         class: '-mx-2.5',
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
-    }
+    },
+    cell: ({ row }: { row: any }) => statBar(row.original.skillLevel ?? 0)
   },
   {
     accessorKey: 'stamina', id: 'stamina',
@@ -118,7 +141,8 @@ const lineupColumns = [
         class: '-mx-2.5',
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
-    }
+    },
+    cell: ({ row }: { row: any }) => statBar(row.original.stamina ?? 0)
   },
   {
     accessorKey: 'marketValue',
@@ -150,6 +174,7 @@ const lineupColumns = [
           color: 'error',
           variant: 'solid',
           size: 'xs',
+          icon: 'i-lucide-tag',
           onClick: () => sellPlayer(row.original.id),
         },
         { default: () => 'Sell' }
@@ -212,13 +237,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-bold mb-4">
-      Team Squad
-    </h1>
-    <h2 class="text-lg mb-2">
+  <div class="space-y-4 sm:space-y-5">
+    <div class="flex items-center gap-2">
+      <UIcon name="i-lucide-users" class="size-6 text-emerald-400" />
+      <h1 class="app-page-title">
+        Team Squad
+      </h1>
+    </div>
+    <h2 class="text-lg font-semibold" style="color: var(--app-text)">
       {{ team?.name }} Squad
     </h2>
-    <UTable v-if="team" :data="team.squad" :columns="lineupColumns" />
+    <div class="app-table-shell">
+      <div class="min-w-max">
+        <UTable v-if="team" :data="team.squad" :columns="lineupColumns" />
+      </div>
+    </div>
   </div>
 </template>

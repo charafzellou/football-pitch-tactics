@@ -5,11 +5,40 @@ export default defineAppConfig({
       primary: 'emerald',
       neutral: 'slate',
     },
+    card: {
+      slots: {
+        root: 'app-card-root',
+        header: 'app-card-header',
+        body: 'app-card-body',
+        footer: 'app-card-footer',
+      },
+      defaultVariants: {
+        variant: 'subtle',
+      },
+    },
     button: {
       defaultVariants: {
-        // Set default button color to neutral
-        // color: 'neutral'
-      }
-    }
+        color: 'primary',
+        variant: 'solid',
+      },
+    },
+    badge: {
+      defaultVariants: {
+        color: 'primary',
+        variant: 'soft',
+      },
+    },
+    input: {
+      defaultVariants: {
+        color: 'primary',
+        variant: 'outline',
+      },
+    },
+    selectMenu: {
+      defaultVariants: {
+        color: 'primary',
+        variant: 'outline',
+      },
+    },
   }
 })

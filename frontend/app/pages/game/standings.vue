@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, computed, h } from 'vue'
+import { UIcon } from '#components'
+
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
   immediate: !!gameState.value?.playerTeamId,
@@ -23,7 +25,32 @@ onMounted(async () => {
   await refreshStandings()
 })
 
+const rankedStandings = computed(() =>
+  (standings.value ?? []).map((row, i) => ({ ...row, rank: i + 1 }))
+)
+
+const medalColors: Record<number, string> = {
+  1: 'text-amber-400',
+  2: 'text-slate-300',
+  3: 'text-amber-600',
+}
+
 const columns = [
+  {
+    id: 'rank',
+    header: '#',
+    cell: ({ row }: { row: any }) => {
+      const rank: number = row.original.rank
+      const color = medalColors[rank]
+      if (color) {
+        return h('div', { class: `flex items-center gap-1 font-bold ${color}` }, [
+          h(UIcon, { name: 'i-lucide-medal', class: 'size-3.5' }),
+          h('span', {}, String(rank)),
+        ])
+      }
+      return h('span', { style: 'color: var(--app-text-muted)' }, String(rank))
+    },
+  },
   { accessorKey: 'teamName', header: 'Team', id: 'teamName' },
   { accessorKey: 'played', header: 'P', id: 'played' },
   { accessorKey: 'wins', header: 'W', id: 'wins' },
@@ -37,10 +64,17 @@ const columns = [
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-bold mb-4">
-      League Standings
-    </h1>
-    <UTable :data="standings" :columns="columns" />
+  <div class="space-y-4 sm:space-y-5">
+    <div class="flex items-center gap-2">
+      <UIcon name="i-lucide-trophy" class="size-6 text-amber-400" />
+      <h1 class="app-page-title">
+        League Standings
+      </h1>
+    </div>
+    <div class="app-table-shell">
+      <div class="min-w-max">
+        <UTable :data="rankedStandings" :columns="columns" />
+      </div>
+    </div>
   </div>
 </template>

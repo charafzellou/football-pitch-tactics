@@ -15,4 +15,277 @@
   --color-green-800: #016538;
   --color-green-900: #0a5331;
   --color-green-950: #052e16;
+
+  /* Animation tokens — register as animate-* Tailwind utilities */
+  --animate-fade-in-up: fadeInUp 0.5s ease-out both;
+  --animate-slide-in-left: slideInLeft 0.35s ease-out both;
+  --animate-live-ping: livePing 1.4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes livePing {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to { background-position: 200% center; }
+}
+
+@layer base {
+  :root {
+    --app-shell-from: #07121a;
+    --app-shell-via: #0b1722;
+    --app-shell-to: #132432;
+    --app-surface: rgba(15, 23, 35, 0.94);
+    --app-surface-subtle: rgba(20, 32, 45, 0.94);
+    --app-surface-muted: rgba(28, 41, 56, 0.96);
+    --app-surface-border: rgba(148, 163, 184, 0.18);
+    --app-topbar: rgba(4, 10, 16, 0.97);
+    --app-topbar-panel: rgba(8, 18, 27, 0.99);
+    --app-topbar-border: rgba(148, 163, 184, 0.14);
+    --app-topbar-text: #f8fafc;
+    --app-topbar-muted: rgba(167, 243, 208, 0.8);
+    --app-topbar-link: rgba(226, 232, 240, 0.9);
+    --app-topbar-hover: rgba(255, 255, 255, 0.12);
+    --app-text: #f8fafc;
+    --app-text-soft: #dbe7f4;
+    --app-text-muted: #94a3b8;
+    --app-text-kicker: #9fb3c8;
+    --app-badge-success-bg: rgba(16, 185, 129, 0.18);
+    --app-badge-success-text: #a7f3d0;
+    --app-badge-warning-bg: rgba(245, 158, 11, 0.2);
+    --app-badge-warning-text: #fde68a;
+    --app-badge-selection-bg: rgba(34, 197, 94, 0.18);
+    --app-badge-selection-text: #bbf7d0;
+    --app-pitch-from: rgba(52, 211, 153, 0.12);
+    --app-pitch-via: #0d6048;
+    --app-pitch-to: #08131d;
+    --app-pitch-card: rgba(255, 255, 255, 0.12);
+    --app-pitch-card-hover: rgba(255, 255, 255, 0.18);
+    --app-pitch-slot: rgba(8, 15, 23, 0.36);
+    --app-pitch-text: #f8fafc;
+    --app-pitch-muted: rgba(220, 252, 231, 0.84);
+    --app-pitch-faint: rgba(226, 232, 240, 0.66);
+    --ui-bg: #0f1722;
+    --ui-bg-muted: #172231;
+    --ui-bg-elevated: #1d2b3c;
+    --ui-bg-accented: #243547;
+    --ui-bg-inverted: #f8fafc;
+    --ui-text: #e5edf7;
+    --ui-text-dimmed: #8ba0b5;
+    --ui-text-muted: #9bb1c7;
+    --ui-text-toned: #bfd0e0;
+    --ui-text-highlighted: #f8fafc;
+    --ui-text-inverted: #08111b;
+    --ui-border: rgba(148, 163, 184, 0.2);
+    --ui-border-muted: rgba(148, 163, 184, 0.12);
+    --ui-border-accented: rgba(148, 163, 184, 0.3);
+    --ui-border-inverted: #08111b;
+  }
+
+  body {
+    @apply antialiased;
+    color-scheme: dark;
+    color: var(--app-text);
+    background-color: var(--app-shell-via);
+    background-image: linear-gradient(135deg, var(--app-shell-from), var(--app-shell-via), var(--app-shell-to));
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply min-h-screen;
+    color: var(--app-text);
+    background-color: var(--app-shell-via);
+    background-image: linear-gradient(135deg, var(--app-shell-from), var(--app-shell-via), var(--app-shell-to));
+  }
+
+  .app-topbar {
+    @apply border-b shadow-sm backdrop-blur;
+    color: var(--app-topbar-text);
+    background-color: var(--app-topbar);
+    border-color: var(--app-topbar-border);
+  }
+
+  .app-topbar-panel {
+    @apply border-t;
+    background-color: var(--app-topbar-panel);
+    border-color: var(--app-topbar-border);
+  }
+
+  .app-topbar-kicker {
+    color: var(--app-topbar-muted);
+  }
+
+  .app-topbar-link {
+    color: var(--app-topbar-link);
+  }
+
+  .app-topbar-link:hover {
+    color: var(--app-topbar-text);
+    background-color: var(--app-topbar-hover);
+  }
+
+  .app-page-title {
+    @apply text-2xl font-bold sm:text-3xl;
+    color: var(--app-text);
+  }
+
+  .app-muted-text {
+    color: var(--app-text-muted);
+  }
+
+  .app-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.2em];
+    color: var(--app-text-kicker);
+  }
+
+  .app-surface {
+    @apply rounded-3xl border shadow-sm backdrop-blur;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface);
+    border-color: var(--app-surface-border);
+    box-shadow: 0 18px 40px -34px rgba(0, 0, 0, 0.7);
+  }
+
+  .app-surface-subtle {
+    @apply rounded-2xl border shadow-sm;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface-subtle);
+    border-color: var(--app-surface-border);
+    box-shadow: 0 16px 36px -32px rgba(0, 0, 0, 0.62);
+  }
+
+  .app-table-shell {
+    @apply overflow-x-auto rounded-3xl border shadow-sm;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface);
+    border-color: var(--app-surface-border);
+    box-shadow: 0 18px 40px -34px rgba(0, 0, 0, 0.7);
+  }
+
+  .app-card-root {
+    @apply rounded-3xl overflow-hidden;
+    color: var(--app-text-soft);
+  }
+
+  .app-card-header {
+    @apply p-5 font-semibold sm:px-6;
+    color: var(--app-text);
+  }
+
+  .app-card-body {
+    @apply p-5 sm:p-6;
+    color: var(--app-text-soft);
+  }
+
+  .app-card-footer {
+    @apply p-5 sm:px-6;
+    color: var(--app-text-muted);
+  }
+
+  .app-surface :where(h1, h2, h3, h4, strong),
+  .app-surface-subtle :where(h1, h2, h3, h4, strong),
+  .app-table-shell :where(h1, h2, h3, h4, strong) {
+    color: var(--app-text);
+  }
+
+  .app-control {
+    @apply mt-2 w-full rounded-xl border px-3 py-2 text-sm shadow-sm outline-none ring-0 transition;
+    color: var(--app-text);
+    background-color: var(--app-surface-muted);
+    border-color: var(--app-surface-border);
+  }
+
+  .app-control:focus {
+    border-color: color-mix(in srgb, var(--app-badge-selection-text) 40%, white);
+  }
+
+  .app-status-pill {
+    @apply rounded-full px-3 py-1 text-xs font-semibold;
+  }
+
+  .app-status-pill--success {
+    color: var(--app-badge-success-text);
+    background-color: var(--app-badge-success-bg);
+  }
+
+  .app-status-pill--warning {
+    color: var(--app-badge-warning-text);
+    background-color: var(--app-badge-warning-bg);
+  }
+
+  .app-selection-pill {
+    @apply rounded-full px-2 py-0.5 text-[11px] font-semibold;
+    color: var(--app-badge-selection-text);
+    background-color: var(--app-badge-selection-bg);
+  }
+
+  .app-pitch-board {
+    @apply relative overflow-hidden rounded-4xl border px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-6 lg:px-8;
+    color: var(--app-pitch-text);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 14%, transparent);
+    background-image: linear-gradient(to bottom, var(--app-pitch-from), var(--app-pitch-via), var(--app-pitch-to));
+  }
+
+  .app-pitch-player {
+    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border px-3 py-3 text-center shadow-lg backdrop-blur transition hover:-translate-y-0.5;
+    color: var(--app-pitch-text);
+    background-color: var(--app-pitch-card);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 14%, transparent);
+    box-shadow: 0 14px 30px -24px rgba(0, 0, 0, 0.45);
+  }
+
+  .app-pitch-player:hover {
+    background-color: var(--app-pitch-card-hover);
+  }
+
+  .app-pitch-slot {
+    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border border-dashed px-3 py-3 text-center shadow-inner;
+    color: var(--app-pitch-faint);
+    background-color: var(--app-pitch-slot);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 20%, transparent);
+  }
+
+  .app-pitch-muted {
+    color: var(--app-pitch-muted);
+  }
+
+  .app-pitch-faint {
+    color: var(--app-pitch-faint);
+  }
+
+  .app-metric-card {
+    @apply rounded-2xl border p-4 shadow-sm;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface-muted);
+    border-color: var(--app-surface-border);
+  }
+
+  .app-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #34d399, #38bdf8);
+  }
+
+  .app-stat-bar-track {
+    @apply h-1.5 w-full overflow-hidden rounded-full;
+    background-color: rgba(148, 163, 184, 0.15);
+  }
+
+  .app-stat-bar-fill {
+    @apply h-full rounded-full transition-all duration-500;
+    background-image: linear-gradient(90deg, #10b981, #34d399);
+  }
 }
