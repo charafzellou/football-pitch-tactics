@@ -33,9 +33,11 @@ The matchday page has five distinct states, controlled by `hasStarted`, `playing
 ### 1. Pre-match setup (on mount)
 ```
 GET /api/schedule  →  nextMatch (first unplayed fixture)
-GET /api/team/:homeTeamId  →  homeTeam (name + full squad)
-GET /api/team/:awayTeamId  →  awayTeam (name + full squad)
+GET /api/team/:homeTeamId  →  homeTeam (name, full squad, startingXi, bench, lineupAutoSelected)
+GET /api/team/:awayTeamId  →  awayTeam (name, full squad, startingXi, bench, lineupAutoSelected)
 ```
+
+`startingXi`/`bench` are already resolved server-side (saved lineup if valid, otherwise auto-selected) — the page does not re-derive a lineup itself. See [tactics.md](tactics.md#lineup-resolution-and-auto-select) for the resolution rules.
 
 ### 2. Start Match (user clicks button)
 
@@ -45,10 +47,10 @@ POST /api/match/simulate { matchId: nextMatch.id }
 
 The server:
 1. Runs `simulateMatch()` — the entire 90-minute simulation completes in microseconds.
-2. Persists the result to `matches` and all events to `match_events`.
-3. Returns: `{ homeScore, awayScore, events: MatchEvent[] }`.
+2. Persists the result to `matches` and all events (each with a `playerId`) to `match_events`.
+3. Returns: `{ homeScore, awayScore, events: MatchEvent[], homeLineup: number[], awayLineup: number[] }`.
 
-All 90 minutes of events are now in memory on the client.
+All 90 minutes of events are now in memory on the client. `homeLineup`/`awayLineup` are the player ids the engine actually fielded — the client adopts them (`homeStartingXi`/`awayStartingXi`), replacing the pre-match preview, so the lineup panels are guaranteed to reflect the XI that was simulated even in the rare case a lineup changed between page load and kickoff.
 
 ### 3. Playback loop
 
@@ -67,12 +69,14 @@ On each tick:
 2. Increment `currentMinute` by 1.
 3. While the next event in `events[playbackIndex]` has `minute <= currentMinute`:
    - Resolve the team name from `homeTeam.id` or `awayTeam.id`.
-   - Resolve the player name from `team.squad.find(p => p.id === event.playerId)`.
+   - Resolve the player name from `team.squad.find(p => p.id === event.playerId)`. Every generated event has a `playerId` now (see [match-engine.md](../technical/match-engine.md)), so this reliably finds a name — it previously could not for card events, which only carried a `teamId`.
    - Prepend a `PlaybackEntry` to `eventFeed` (`unshift` → newest at top).
    - If `eventType === 'goal'`, increment the appropriate score.
    - Advance `playbackIndex`.
 
 This means multiple events at the same minute are all surfaced in a single tick.
+
+`playbackIndex` also drives the lineup panels' player colouring (see [Player Status Colouring](#player-status-colouring) below): `revealedEvents` is `events.slice(0, playbackIndex)`, so a card only colours a player once its minute has actually played out on the clock — not the instant the simulation result arrives.
 
 ### 5. Pause / Resume
 
@@ -105,6 +109,8 @@ Each displayed entry:
 
 **Display order:** Newest first (`unshift`). New events slide in from the left via `animate-slide-in-left`.
 
+**Event type normalisation:** a `normalizeEventType()` helper collapses spelling variants (`yellow_card` → `yellow`, `red_card` → `red`, `sub`/`sub_off` → `substitution`) to a single canonical form before any icon, colour, or label lookup runs. This closes the historical mismatch where the seeded `event_type` table used `'yellow'`/`'red'` but the icon helpers only recognised `'yellow_card'`/`'red_card'`, so card events silently fell back to the generic zap icon — every lookup now goes through the same normaliser, so a future rename in one place can't drift out of sync with another.
+
 **Icons by event type:**
 | `type` | Icon | Color class |
 |---|---|---|
@@ -112,7 +118,13 @@ Each displayed entry:
 | `yellow` (yellow card) | `i-lucide-square` | `text-amber-400` |
 | `red` (red card) | `i-lucide-square` | `text-red-500` |
 | `substitution` | `i-lucide-arrow-left-right` | `text-sky-400` |
+| `foul` | `i-lucide-flag` | `text-orange-400` |
+| `injury` | `i-lucide-heart-crack` | `text-rose-400` |
+| `shot` | `i-lucide-crosshair` | `text-white/50` |
+| `miss` | `i-lucide-circle-off` | `text-white/50` |
 | (other) | `i-lucide-zap` | `text-white/50` |
+
+The feed label itself (`eventLabel()`) also goes through the normaliser: `yellow` displays as "yellow card", `red` as "red card", everything else as the normalised type with underscores replaced by spaces.
 
 ---
 
@@ -153,11 +165,48 @@ While a match is in progress (started but not finished), the player **cannot nav
 
 ## Lineup Panels
 
-Both home and away squads are displayed in the side columns. Each player entry shows:
-- A **position badge** (color-coded: GK=sky, DEF=emerald, MID=amber, ATT=rose).
-- Player name.
+The Home and Away Lineup panels show the **starting XI**, not the full squad — resolved server-side by `GET /api/team/:id` (see [tactics.md](tactics.md#lineup-resolution-and-auto-select)). Each panel has two sections:
 
-This provides context about which players are playing, though the simulation uses the engine's own `selectLineup()` function based on DB positions — not the lineup the player selected on the Dashboard.
+**Starters** (`startingXi`, in `GK → DF → MF → FW` order):
+- A **position badge** (color-coded: GK=sky, DF=emerald, MF=amber, FW=rose).
+- Player name, coloured by their current match status (see below).
+
+**Bench** (everything else in the squad, same slot order), under a small "Bench" divider. Bench players use a slightly dimmed position badge and start out in the same muted grey as an unused player.
+
+If the team's lineup was auto-selected (no valid saved XI — true for every AI club, and true for the player's own team until they save one from the Dashboard), the panel header shows a small **"Auto"** badge.
+
+---
+
+## Player Status Colouring
+
+Every name in a lineup panel is coloured based on events that have actually played out on the clock so far (`revealedEvents`, driven by `playbackIndex` — see [`tickOnce()`](#4-tickonce--the-heart-of-the-playback) above), not the full pre-computed event list:
+
+| State | Class | Appearance | Condition |
+|---|---|---|---|
+| On the pitch | `.app-player-on-pitch` | Normal soft text colour | Default state for a starter with no card and not substituted |
+| Booked | `.app-player-booked` | Amber text | Player has a revealed `yellow` event and no `red` |
+| Sent off | `.app-player-sent-off` | Red text, strikethrough | Player has a revealed `red` event |
+| Not on the pitch | `.app-player-out` | Muted grey | Player is on the bench, or was substituted off (a revealed `substitution` event) |
+
+A red card always wins over a yellow if both are somehow present. These four classes are defined in `app/assets/css/main.css` (`--app-player-booked`, `--app-player-sent-off`, `--app-player-out` CSS variables) and are shared by both lineup panels.
+
+---
+
+## Responsive Layout
+
+The three panels — Home Lineup, Match Events, Away Lineup — sit in a single CSS grid:
+
+**Desktop (`lg` and above):** one row, three equal columns — `Home Lineup | Match Events | Away Lineup`, left to right, matching source order.
+
+**Mobile/tablet (below `lg`):** two columns, two rows:
+```
+┌───────────────┬───────────────┐
+│  Home Lineup   │  Away Lineup   │   ← row 1: two columns
+├───────────────┴───────────────┤
+│        Match Events            │   ← row 2: spans both columns
+└─────────────────────────────────┘
+```
+Achieved with a `grid-cols-2 lg:grid-cols-3` grid, `order` utilities placing Home Lineup / Away Lineup / Match Events in that visual order on mobile (source order is Home / Events / Away, so this reflows without a DOM reorder), and `col-span-2 lg:col-span-1` on the Match Events card so it spans the full width only on the two-column mobile layout.
 
 ---
 
@@ -165,8 +214,12 @@ This provides context about which players are playing, though the simulation use
 
 | Issue | Notes |
 |---|---|
-| Player lineup on screen ≠ actual simulated lineup | The page shows the full squad, not just the 11 selected. The engine selects its own best XI. |
 | All events are pre-computed before playback starts | The "live" feel is purely cosmetic — the result is known the instant the player clicks Start. |
 | Pause does not affect server state | The server has already returned all events at simulation start. |
 | No half-time indication | The clock just counts to 90 continuously. |
-| `yellow`/`red` event type key mismatch | The seed `event_type` table uses `'yellow'` and `'red'`, but the `eventIcon()` helper checks for `'yellow_card'` and `'red_card'`. Card icons will fall back to the default zap icon. |
+| No stamina influence on match performance, no home advantage | See [match-engine.md](../technical/match-engine.md#known-limitations--history) for the full list of engine-level gaps. |
+
+**Previously listed here, now fixed:**
+- ~~Player lineup on screen ≠ actual simulated lineup~~ — the page now shows the resolved starting XI (saved or auto-selected), matching what the engine actually simulates.
+- ~~`yellow`/`red` event type key mismatch~~ — a single `normalizeEventType()` helper is now the only place spelling variants are handled.
+- ~~Card events had no player attached, only a team~~ — every event the engine generates now names a specific player (see [match-engine.md](../technical/match-engine.md#player-selection-by-position)).

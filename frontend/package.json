@@ -1,5 +1,6 @@
 {
   "name": "football-pitch-tactics",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,7 +20,7 @@
     "@faker-js/faker": "^9.9.0",
     "@iconify-json/heroicons": "^1.2.3",
     "@iconify-json/lucide": "^1.2.121",
-    "@iconify-json/simple-icons": "^1.2.92",
+    "@iconify-json/simple-icons": "^1.2.93",
     "@libsql/client": "^0.17.4",
     "@nuxt/eslint": "^1.16.0",
     "@nuxt/eslint-config": "^1.16.0",
@@ -33,7 +34,7 @@
     "pinia": "^3.0.4",
     "prettier": "^3.9.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0",
+    "typescript-eslint": "^8.66.0",
     "vue-router": "^4.6.4",
     "vue-tsc": "^3.3.9"
   }

@@ -13,7 +13,7 @@ This folder contains all documentation for the project, split into **technical**
 | [technical/api-routes.md](technical/api-routes.md) | Every HTTP endpoint — method, URL, request body, response shape, error codes |
 | [technical/frontend.md](technical/frontend.md) | Pages, components, layouts, Pinia stores, middleware |
 | [technical/css-styling.md](technical/css-styling.md) | Tailwind v4 theme, CSS variable system, component class catalogue |
-| [technical/match-engine.md](technical/match-engine.md) | Simulation algorithm — lineup selection, stats calculation, event generation |
+| [technical/match-engine.md](technical/match-engine.md) | Simulation algorithm — lineup resolution, stats calculation, weighted event generation |
 
 ## Functional Documentation
 

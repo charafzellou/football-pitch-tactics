@@ -95,6 +95,13 @@ Applied to `body` and `.app-shell` as `linear-gradient(135deg, from, via, to)`.
 --app-badge-selection-text:#bbf7d0
 ```
 
+### Player Status (Matchday lineup panels)
+```
+--app-player-booked:    #fbbf24   ← yellow card
+--app-player-sent-off:  #f87171   ← red card (paired with a strikethrough)
+--app-player-out:       #64748b   ← benched or substituted off
+```
+
 ### Pitch
 ```
 --app-pitch-from:      rgba(52, 211, 153, 0.12)  ← top gradient (translucent green)
@@ -175,6 +182,14 @@ Named semantic classes that compose Tailwind utilities + CSS variables. Use thes
 | `.app-status-pill--success` | "Lineup ready" | success badge colours |
 | `.app-status-pill--warning` | "Incomplete lineup" | warning badge colours |
 | `.app-selection-pill` | "Selected" badge on player rows | `rounded-full px-2 text-[11px]`, selection colours |
+
+### Matchday Player Status
+| Class | Purpose | Key styles |
+|---|---|---|
+| `.app-player-on-pitch` | Starter, no card, still playing | `app-text-soft` colour (normal) |
+| `.app-player-booked` | Player has a yellow card | `app-player-booked` (amber) colour |
+| `.app-player-sent-off` | Player has a red card | `app-player-sent-off` (red) colour + `line-through` |
+| `.app-player-out` | Benched or substituted off | `app-player-out` (muted grey) colour |
 
 ### Pitch
 | Class | Purpose | Key styles |

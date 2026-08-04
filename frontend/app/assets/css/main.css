@@ -63,6 +63,9 @@
     --app-text-soft: #dbe7f4;
     --app-text-muted: #94a3b8;
     --app-text-kicker: #9fb3c8;
+    --app-player-booked: #fbbf24;
+    --app-player-sent-off: #f87171;
+    --app-player-out: #64748b;
     --app-badge-success-bg: rgba(16, 185, 129, 0.18);
     --app-badge-success-text: #a7f3d0;
     --app-badge-warning-bg: rgba(245, 158, 11, 0.2);
@@ -225,6 +228,24 @@
   .app-status-pill--warning {
     color: var(--app-badge-warning-text);
     background-color: var(--app-badge-warning-bg);
+  }
+
+  /* Lineup player states — booked, sent off, or not on the pitch. */
+  .app-player-on-pitch {
+    color: var(--app-text-soft);
+  }
+
+  .app-player-booked {
+    color: var(--app-player-booked);
+  }
+
+  .app-player-sent-off {
+    @apply line-through;
+    color: var(--app-player-sent-off);
+  }
+
+  .app-player-out {
+    color: var(--app-player-out);
   }
 
   .app-selection-pill {

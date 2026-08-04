@@ -68,7 +68,7 @@ All four tactics: `4-4-2`, `4-5-1`, `4-3-3`, `3-5-2`. See [tactics.md](../functi
 ## Team Endpoints
 
 ### `GET /api/team/:id`
-Returns a team plus its full squad.
+Returns a team, its full squad, and its resolved lineup (saved XI if still valid, otherwise auto-selected — see [tactics.md](../functional/tactics.md#lineup-resolution-and-auto-select)).
 
 **URL params:**
 - `id` (required) — numeric team ID
@@ -81,6 +81,7 @@ Returns a team plus its full squad.
   "leagueId": 1,
   "bankBalance": 24500000,
   "tactics": "4-3-3",
+  "lineup": [42, 51, ...],
   "squad": [
     {
       "id": 42,
@@ -93,11 +94,20 @@ Returns a team plus its full squad.
       "teamId": 3
     },
     ...
-  ]
+  ],
+  "formation": { "GK": 1, "DF": 4, "MF": 3, "FW": 3 },
+  "startingXi": [42, 51, ...],
+  "bench": [77, 88, ...],
+  "lineupAutoSelected": false
 }
 ```
 
-**Errors:** `400` if `id` is missing or zero.
+- `lineup` — the raw saved lineup from `teams.lineup` (parsed JSON array of player ids), or `null` if none was ever saved.
+- `formation` — the slot counts for the team's current tactic (or the default 4-4-2 if no tactic is set).
+- `startingXi` / `bench` — the *resolved* XI and remaining squad, as player id arrays, in `GK → DF → MF → FW` order (best first within each slot). This is what the Matchday lineup panels render directly.
+- `lineupAutoSelected` — `true` when `lineup` was missing/invalid and `startingXi` was auto-selected instead of coming from the saved lineup.
+
+**Errors:** `400` if `id` is missing or zero. `404` if no team exists with that id.
 
 ---
 
@@ -116,7 +126,33 @@ Updates the selected tactic for a team.
 
 **Errors:** `400` if `id` is missing.
 
-**Notes:** Called immediately before navigating to `/matchday` so the simulation uses the player's latest formation choice.
+**Notes:** Called immediately before navigating to `/matchday` so the simulation uses the player's latest formation choice. Called together with `PUT /api/team/:id/lineup` — see below.
+
+---
+
+### `PUT /api/team/:id/lineup`
+Saves (or clears) the starting XI for a team.
+
+**URL params:**
+- `id` (required) — numeric team ID
+
+**Request body:**
+```json
+{ "lineup": [42, 51, 77, 88, 12, 34, 56, 78, 90, 21, 65] }
+```
+
+Must resolve to **exactly 11 distinct player ids** that belong to the team's current squad.
+
+**Response:**
+```json
+{ "success": true, "lineup": [42, 51, 77, 88, 12, 34, 56, 78, 90, 21, 65] }
+```
+
+**Clearing a lineup:** an empty, missing, or unparseable `lineup` is treated as "clear" rather than an error — the team's `lineup` column is set back to `NULL` (falling back to auto-selection), and the response is `{ "success": true, "lineup": null }`.
+
+**Errors:** `400` if `id` is missing, or if the (non-empty) payload does not resolve to exactly 11 valid, distinct player ids from the team's squad (e.g. wrong count, a player from another team, duplicates that collapse below 11 after de-duplication).
+
+**Notes:** Called immediately after `PUT /api/team/:id/tactics` when the player clicks "Go to Matchday". This is what makes the Dashboard's lineup builder selection actually affect the match simulation — previously the engine always picked its own best XI regardless of what the player chose. See [tactics.md](../functional/tactics.md#saving-tactics-and-lineup).
 
 ---
 
@@ -243,10 +279,10 @@ If `matchId` is omitted, the earliest unplayed fixture is simulated instead.
 **What it does:**
 1. Looks up the match row (must have `homeScore IS NULL`).
 2. Fetches both squads from the DB.
-3. Reads each team's `tactics` setting; falls back to `4-4-2` if `NULL`.
-4. Calls `simulateMatch()` from `server/core/match-engine.ts`.
+3. Reads each team's `tactics` setting (falls back to the default 4-4-2 if `NULL`) and its saved `lineup` (via the shared `parseLineup()`).
+4. Calls `simulateMatch()` from `server/core/match-engine.ts`, passing each team's saved lineup ids (if any) — see [match-engine.md](match-engine.md).
 5. Writes `homeScore`, `awayScore`, `played = 1` to the `matches` row.
-6. Persists all generated events to `match_events`.
+6. Persists all generated events to `match_events`, each with a `playerId` — see [match-engine.md](match-engine.md#player-selection-by-position).
 7. Advances `game.currentDate` to `matchDate + 1 second`.
 
 **Response:**
@@ -259,10 +295,14 @@ If `matchId` is omitted, the earliest unplayed fixture is simulated instead.
     { "minute": 23, "eventType": "goal", "teamId": 3, "playerId": 42 },
     ...
   ],
+  "homeLineup": [42, 51, 77, ...],
+  "awayLineup": [12, 34, 56, ...],
   "simulated": { ... full simulation result ... },
   "updatedMatch": { ... match row with events ... }
 }
 ```
+
+`homeLineup`/`awayLineup` are the player ids the engine actually started with (resolved the same way `GET /api/team/:id` resolves `startingXi`). The Matchday page adopts these after simulation so its lineup panels match exactly what was simulated.
 
 **Errors:** Returns `{ "message": "No matches to simulate" }` (200) if the requested match is already played.
 

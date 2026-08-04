@@ -2,8 +2,10 @@
 import { UBadge, UButton } from '#components'
 import { ref, computed, h, onMounted, watch } from 'vue'
 import { useToast } from '#imports'
+import type { LineupSlot } from '#shared/lineup'
+import { LINEUP_SIZE, LINEUP_SLOT_ORDER, normalizePosition, parseLineup } from '#shared/lineup'
 
-type LineupPosition = 'GK' | 'DF' | 'MF' | 'FW'
+type LineupPosition = LineupSlot
 
 interface SquadPlayer {
   id: number
@@ -22,7 +24,7 @@ interface TacticOption {
   modifiers: { attack: number; defence: number }
 }
 
-const POSITION_ORDER: LineupPosition[] = ['GK', 'DF', 'MF', 'FW']
+const POSITION_ORDER: LineupPosition[] = LINEUP_SLOT_ORDER
 const PITCH_ROW_ORDER: LineupPosition[] = ['FW', 'MF', 'DF', 'GK']
 const POSITION_LABELS: Record<LineupPosition, string> = {
   GK: 'Goalkeepers',
@@ -38,24 +40,6 @@ const PITCH_ROW_LABELS: Record<LineupPosition, string> = {
 }
 
 const toast = useToast()
-
-function normalizePosition(position: string): LineupPosition | null {
-  const normalized = String(position ?? '').toUpperCase().trim()
-
-  if (['GOALKEEPER', 'GK'].includes(normalized))
-    return 'GK'
-
-  if (['DEFENDER', 'DEF', 'DF'].includes(normalized))
-    return 'DF'
-
-  if (['MIDFIELDER', 'MID', 'MF'].includes(normalized))
-    return 'MF'
-
-  if (['FORWARD', 'ATTACKER', 'ATT', 'FW'].includes(normalized))
-    return 'FW'
-
-  return null
-}
 
 function averageValue(values: number[]) {
   if (!values.length)
@@ -169,7 +153,7 @@ const pitchRows = computed(() => {
 
 const lineupIsComplete = computed(() => {
   return POSITION_ORDER.every(position => selectedPositionCounts.value[position] === formationRequirements.value[position])
-    && selectedSquadPlayers.value.length === 11
+    && selectedSquadPlayers.value.length === LINEUP_SIZE
 })
 
 const lineupSummaryText = computed(() => {
@@ -233,7 +217,7 @@ function getSelectionState(player: SquadPlayer) {
     }
   }
 
-  if (selectedSquadPlayers.value.length >= 11) {
+  if (selectedSquadPlayers.value.length >= LINEUP_SIZE) {
     return {
       isSelected: false,
       canSelect: false,
@@ -292,16 +276,30 @@ function togglePlayerSelection(player: SquadPlayer) {
   })
 }
 
+const lineupHydrated = ref(false)
+
 watch([tacticOptions, team], ([availableTactics, currentTeam]) => {
-  if (!availableTactics.length || selectedTactic.value)
+  if (!availableTactics.length)
     return
 
-  const preferredTactic = availableTactics.find(tactic => tactic.name === currentTeam?.tactics)?.name
-    ?? availableTactics[0]?.name
-    ?? ''
+  if (!selectedTactic.value) {
+    const preferredTactic = availableTactics.find(tactic => tactic.name === currentTeam?.tactics)?.name
+      ?? availableTactics[0]?.name
+      ?? ''
 
-  if (preferredTactic)
-    selectedTactic.value = preferredTactic
+    if (preferredTactic)
+      selectedTactic.value = preferredTactic
+  }
+
+  // Restore the XI saved on the last visit, once, so the builder picks up
+  // where it left off instead of starting empty every time.
+  if (currentTeam && !lineupHydrated.value) {
+    lineupHydrated.value = true
+
+    const savedLineup = parseLineup(currentTeam.lineup)
+    if (savedLineup)
+      selectedPlayers.value = savedLineup
+  }
 }, { immediate: true })
 
 watch(selectedTactic, (newValue, oldValue) => {
@@ -338,11 +336,27 @@ async function confirmTacticAndSimulate() {
       description: lineupSummaryText.value,
     })
   } else {
-    // Save tactic
-    await $fetch(`/api/team/${team.value.id}/tactics`, {
-      method: 'PUT',
-      body: { tactics: selectedTactic.value },
-    })
+    // Persist both, so Matchday and the engine field the XI that was picked
+    // here. Navigating on a failed save would silently field a different XI.
+    try {
+      await $fetch(`/api/team/${team.value.id}/tactics`, {
+        method: 'PUT',
+        body: { tactics: selectedTactic.value },
+      })
+      await $fetch(`/api/team/${team.value.id}/lineup`, {
+        method: 'PUT',
+        body: { lineup: selectedPlayers.value },
+      })
+    } catch {
+      toast.add({
+        color: 'error',
+        icon: 'i-lucide-octagon-x',
+        title: 'Could not save your team sheet',
+        description: 'The tactic and lineup were not saved. Please try again.',
+      })
+      return
+    }
+
     navigateTo('/matchday')
   }
 }

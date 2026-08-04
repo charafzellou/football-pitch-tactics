@@ -63,7 +63,9 @@ All pages live under `frontend/app/pages/` and are auto-registered by Nuxt's fil
 - If not selected: checks total ≤ 10, position slot not full, valid tactic selected.
 - Changing tactic resets the entire lineup (toast notification).
 
-**On "Go to Matchday":** Saves tactic via `PUT /api/team/:id/tactics`, then navigates to `/matchday`.
+**Restoring a saved lineup:** on load, once both `tacticOptions` and `team` are available, a one-time hydration step reads `team.lineup` (via the shared `parseLineup()`) and pre-populates `selectedPlayers` if a saved XI exists — so returning to the Dashboard doesn't start the builder empty.
+
+**On "Go to Matchday":** Saves the tactic via `PUT /api/team/:id/tactics`, then the selected XI via `PUT /api/team/:id/lineup`, then navigates to `/matchday`. If either save request fails, an error toast is shown and navigation is aborted — the player is never sent to Matchday with an unsaved team sheet. Position normalisation and lineup-size constants (`LINEUP_SIZE`, `LINEUP_SLOT_ORDER`) are imported from `#shared/lineup` rather than defined locally.
 
 ---
 
@@ -129,7 +131,11 @@ See [matchday.md](../functional/matchday.md) for the full functional description
 
 **Data fetched:**
 - `GET /api/schedule` → next unplayed fixture
-- `GET /api/team/:homeTeamId` and `GET /api/team/:awayTeamId` → both squads
+- `GET /api/team/:homeTeamId` and `GET /api/team/:awayTeamId` → both squads, plus each team's resolved `startingXi`/`bench`/`lineupAutoSelected`
+
+**Lineup panels** show the resolved starting XI and bench (not the full squad), coloured by live match status (on pitch / booked / sent off / benched). The `homeLineup`/`awayLineup` returned by `POST /api/match/simulate` are adopted after simulation, so the panels always reflect the XI the engine actually fielded. See [tactics.md](../functional/tactics.md#lineup-resolution-and-auto-select) and [matchday.md](../functional/matchday.md#lineup-panels) for the resolution and colouring rules.
+
+**Layout:** the three panels (Home Lineup, Match Events, Away Lineup) form a responsive grid — one row of three on desktop, two columns/two rows on mobile with Match Events spanning the bottom row. See [matchday.md](../functional/matchday.md#responsive-layout).
 
 **Navigation guard:** `onBeforeRouteLeave` blocks leaving while `hasStarted && !isFinished`, preventing the player from abandoning an in-progress match.
 

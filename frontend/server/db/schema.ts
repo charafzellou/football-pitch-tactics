@@ -33,6 +33,8 @@ export const teams = sqliteTable('teams', {
     .references(() => leagues.id),
   bankBalance: integer('bank_balance').notNull().default(1000000),
   tactics: text('tactics'),
+  /** Selected starting XI as a JSON array of player ids. Null → auto-selected. */
+  lineup: text('lineup'),
 })
 
 /**

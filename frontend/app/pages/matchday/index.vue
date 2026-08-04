@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { UButton, UCard, UBadge } from '#components'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
+import type { LineupSlot } from '#shared/lineup'
+import { normalizePosition, sortByLineupOrder } from '#shared/lineup'
 
 interface PlaybackEntry {
     id: string
@@ -22,6 +24,32 @@ interface SimulationResponse {
     homeScore: number
     awayScore: number
     events: SimulationEvent[]
+    homeLineup: number[]
+    awayLineup: number[]
+}
+
+interface SquadPlayer {
+    id: number
+    name: string
+    position: string
+    skillLevel: number
+}
+
+interface TeamPayload {
+    id: number
+    name: string
+    squad: SquadPlayer[]
+    startingXi: number[]
+    lineupAutoSelected: boolean
+}
+
+/** A player as rendered in a lineup panel. */
+interface LineupRow {
+    id: number
+    name: string
+    slot: string
+    color: 'sky' | 'emerald' | 'amber' | 'rose' | 'neutral'
+    statusClass: string
 }
 
 const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
@@ -38,17 +66,23 @@ const awayScore = ref(0)
 const isFinished = ref(false)
 const eventFeed = ref<PlaybackEntry[]>([])
 
-const homeTeam = ref<any>(null)
-const awayTeam = ref<any>(null)
+const homeTeam = ref<TeamPayload | null>(null)
+const awayTeam = ref<TeamPayload | null>(null)
+// Kept separate from the team payload so the simulation response can confirm
+// the XI that actually took the field.
+const homeStartingXi = ref<number[]>([])
+const awayStartingXi = ref<number[]>([])
 
 const router = useRouter()
 
 async function loadTeams() {
     if (!nextMatch.value) return
-    const home = await $fetch(`/api/team/${nextMatch.value.homeTeamId}`)
-    const away = await $fetch(`/api/team/${nextMatch.value.awayTeamId}`)
+    const home = await $fetch<TeamPayload>(`/api/team/${nextMatch.value.homeTeamId}`)
+    const away = await $fetch<TeamPayload>(`/api/team/${nextMatch.value.awayTeamId}`)
     homeTeam.value = home
     awayTeam.value = away
+    homeStartingXi.value = home.startingXi ?? []
+    awayStartingXi.value = away.startingXi ?? []
 }
 
 onMounted(async () => {
@@ -62,6 +96,10 @@ onBeforeRouteLeave(() => {
 })
 
 let intervalHandle: any = null
+
+onBeforeUnmount(() => {
+    if (intervalHandle) clearInterval(intervalHandle)
+})
 
 async function startPlayback() {
     if (!nextMatch.value || hasStarted.value || loadingMatch.value) return
@@ -89,6 +127,9 @@ async function startPlayback() {
     }
 
     events.value = result.events ?? []
+    // Adopt the XIs the engine fielded, in case they drifted from the preview.
+    if (result.homeLineup?.length) homeStartingXi.value = result.homeLineup
+    if (result.awayLineup?.length) awayStartingXi.value = result.awayLineup
     hasStarted.value = true
     playing.value = true
     loadingMatch.value = false
@@ -124,7 +165,7 @@ function tickOnce() {
         }
         eventFeed.value.unshift(entry)
         // update score on goals
-        if (String(e.eventType) === 'goal') {
+        if (normalizeEventType(e.eventType) === 'goal') {
             if (e.teamId === homeTeam.value.id) homeScore.value++
             else awayScore.value++
         }
@@ -166,32 +207,123 @@ function endMatch() {
     router.push('/game')
 }
 
-const positionColors: Record<string, 'sky' | 'emerald' | 'amber' | 'rose'> = {
-  GK: 'sky', DEF: 'emerald', DF: 'emerald', MID: 'amber', MF: 'amber', ATT: 'rose', FW: 'rose',
+const positionColors: Record<LineupSlot, 'sky' | 'emerald' | 'amber' | 'rose'> = {
+  GK: 'sky', DF: 'emerald', MF: 'amber', FW: 'rose',
 }
-function positionColor(pos: string): 'sky' | 'emerald' | 'amber' | 'rose' | 'neutral' {
-  return positionColors[String(pos ?? '').toUpperCase().trim()] ?? 'neutral'
+
+/** The seed data mixes 'yellow'/'yellow_card' spellings — collapse them here. */
+function normalizeEventType(type: string): string {
+  const value = String(type ?? '').toLowerCase().trim()
+
+  if (value === 'yellow_card') return 'yellow'
+  if (value === 'red_card') return 'red'
+  if (value === 'sub' || value === 'sub_off') return 'substitution'
+
+  return value
+}
+
+function eventLabel(type: string): string {
+  switch (normalizeEventType(type)) {
+    case 'yellow': return 'yellow card'
+    case 'red': return 'red card'
+    default: return normalizeEventType(type).replace(/_/g, ' ')
+  }
 }
 
 function eventIcon(type: string): string {
-  switch (String(type).toLowerCase()) {
+  switch (normalizeEventType(type)) {
     case 'goal': return 'i-lucide-circle-dot'
-    case 'yellow_card': return 'i-lucide-square'
-    case 'red_card': return 'i-lucide-square'
+    case 'yellow': return 'i-lucide-square'
+    case 'red': return 'i-lucide-square'
     case 'substitution': return 'i-lucide-arrow-left-right'
+    case 'foul': return 'i-lucide-flag'
+    case 'injury': return 'i-lucide-heart-crack'
+    case 'shot': return 'i-lucide-crosshair'
+    case 'miss': return 'i-lucide-circle-off'
     default: return 'i-lucide-zap'
   }
 }
 
 function eventIconClass(type: string): string {
-  switch (String(type).toLowerCase()) {
+  switch (normalizeEventType(type)) {
     case 'goal': return 'text-emerald-400'
-    case 'yellow_card': return 'text-amber-400'
-    case 'red_card': return 'text-red-500'
+    case 'yellow': return 'text-amber-400'
+    case 'red': return 'text-red-500'
     case 'substitution': return 'text-sky-400'
+    case 'foul': return 'text-orange-400'
+    case 'injury': return 'text-rose-400'
     default: return 'text-white/50'
   }
 }
+
+/** Only events already played back count — the panels follow the clock. */
+const revealedEvents = computed(() => events.value.slice(0, playbackIndex.value))
+
+const playerStatus = computed(() => {
+  const booked = new Set<number>()
+  const sentOff = new Set<number>()
+  const substituted = new Set<number>()
+
+  for (const event of revealedEvents.value) {
+    if (!event.playerId)
+      continue
+
+    switch (normalizeEventType(event.eventType)) {
+      case 'yellow': booked.add(event.playerId); break
+      case 'red': sentOff.add(event.playerId); break
+      case 'substitution': substituted.add(event.playerId); break
+    }
+  }
+
+  return { booked, sentOff, substituted }
+})
+
+function statusClassFor(playerId: number, isStarter: boolean): string {
+  const { booked, sentOff, substituted } = playerStatus.value
+
+  if (sentOff.has(playerId))
+    return 'app-player-sent-off'
+
+  if (booked.has(playerId))
+    return 'app-player-booked'
+
+  if (!isStarter || substituted.has(playerId))
+    return 'app-player-out'
+
+  return 'app-player-on-pitch'
+}
+
+function toRow(player: SquadPlayer, isStarter: boolean): LineupRow {
+  const slot = normalizePosition(player.position)
+
+  return {
+    id: player.id,
+    name: player.name,
+    slot: slot ?? '—',
+    color: slot ? positionColors[slot] : 'neutral',
+    statusClass: statusClassFor(player.id, isStarter),
+  }
+}
+
+function buildLineup(team: TeamPayload | null, startingXi: number[]) {
+  if (!team)
+    return { starters: [] as LineupRow[], bench: [] as LineupRow[] }
+
+  const squadById = new Map(team.squad.map(player => [player.id, player]))
+  const starterIds = new Set(startingXi)
+  const starters = startingXi
+    .map(id => squadById.get(id))
+    .filter((player): player is SquadPlayer => Boolean(player))
+  const bench = sortByLineupOrder(team.squad.filter(player => !starterIds.has(player.id)))
+
+  return {
+    starters: starters.map(player => toRow(player, true)),
+    bench: bench.map(player => toRow(player, false)),
+  }
+}
+
+const homeLineup = computed(() => buildLineup(homeTeam.value, homeStartingXi.value))
+const awayLineup = computed(() => buildLineup(awayTeam.value, awayStartingXi.value))
 </script>
 
 <template>
@@ -245,65 +377,83 @@ function eventIconClass(type: string): string {
             </div>
         </UCard>
 
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-                <UCard class="app-surface h-full">
-                    <template #header>
-                      <div class="flex items-center gap-2">
-                        <UIcon name="i-lucide-shield" class="size-4 text-emerald-400" />
-                        Home Lineup
-                      </div>
-                    </template>
-                    <ul class="max-h-96 space-y-1.5 overflow-y-auto pr-1">
-                        <li v-for="p in homeTeam?.squad" :key="p.id" class="flex items-center gap-2">
-                          <UBadge :color="positionColor(p.position)" variant="soft" size="xs" :label="p.position" />
-                          <span class="text-sm" style="color: var(--app-text-soft)">{{ p.name }}</span>
-                        </li>
-                    </ul>
-                </UCard>
-            </div>
+        <!--
+          Mobile: two columns — lineups on the top row, events spanning the bottom.
+          lg and up: a single row of three columns.
+        -->
+        <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <UCard class="app-surface order-1 h-full lg:order-none">
+                <template #header>
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-shield" class="size-4 shrink-0 text-emerald-400" />
+                    <span class="truncate">Home Lineup</span>
+                    <UBadge v-if="homeTeam?.lineupAutoSelected" color="neutral" variant="soft" size="xs" label="Auto" />
+                  </div>
+                </template>
+                <ul class="max-h-96 space-y-1.5 overflow-y-auto pr-1">
+                    <li v-for="p in homeLineup.starters" :key="p.id" class="flex items-center gap-2">
+                      <UBadge :color="p.color" variant="soft" size="xs" :label="p.slot" class="shrink-0" />
+                      <span class="min-w-0 truncate text-xs sm:text-sm" :class="p.statusClass">{{ p.name }}</span>
+                    </li>
+                    <li v-if="!homeLineup.starters.length" class="app-muted-text text-sm">No lineup available.</li>
 
-            <div class="md:col-span-2 xl:col-span-1">
-                <UCard class="app-surface h-full">
-                    <template #header>
-                      <div class="flex items-center gap-2">
-                        <UIcon name="i-lucide-activity" class="size-4 text-emerald-400" />
-                        Match Events
-                      </div>
+                    <template v-if="homeLineup.bench.length">
+                      <li class="app-kicker pt-3 text-[10px]">Bench</li>
+                      <li v-for="p in homeLineup.bench" :key="p.id" class="flex items-center gap-2">
+                        <UBadge :color="p.color" variant="soft" size="xs" :label="p.slot" class="shrink-0 opacity-60" />
+                        <span class="min-w-0 truncate text-xs sm:text-sm" :class="p.statusClass">{{ p.name }}</span>
+                      </li>
                     </template>
-                    <ul class="max-h-96 space-y-2 overflow-y-auto pr-1">
-                        <li
-                          v-for="e in eventFeed"
-                          :key="e.id"
-                          class="flex items-center gap-2 text-sm animate-slide-in-left"
-                        >
-                            <UIcon :name="eventIcon(e.type)" class="size-4 shrink-0" :class="eventIconClass(e.type)" />
-                            <span class="w-7 shrink-0 font-bold tabular-nums" style="color: var(--app-text)">{{ e.minute }}'</span>
-                            <span class="truncate" style="color: var(--app-text-muted)">{{ e.teamName }}</span>
-                            <span class="shrink-0 font-medium capitalize" style="color: var(--app-text-soft)">{{ e.type.replace('_', ' ') }}</span>
-                            <span v-if="e.playerName" class="truncate text-xs" style="color: var(--app-text-muted)">– {{ e.playerName }}</span>
-                        </li>
-                        <li v-if="!eventFeed.length" class="app-muted-text text-sm">No events yet.</li>
-                    </ul>
-                </UCard>
-            </div>
+                </ul>
+            </UCard>
 
-            <div>
-                <UCard class="app-surface h-full">
-                    <template #header>
-                      <div class="flex items-center gap-2">
-                        <UIcon name="i-lucide-shield" class="size-4 text-sky-400" />
-                        Away Lineup
-                      </div>
+            <UCard class="app-surface order-3 col-span-2 h-full lg:order-none lg:col-span-1">
+                <template #header>
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-activity" class="size-4 shrink-0 text-emerald-400" />
+                    <span class="truncate">Match Events</span>
+                  </div>
+                </template>
+                <ul class="max-h-96 space-y-2 overflow-y-auto pr-1">
+                    <li
+                      v-for="e in eventFeed"
+                      :key="e.id"
+                      class="flex items-center gap-2 text-sm animate-slide-in-left"
+                    >
+                        <UIcon :name="eventIcon(e.type)" class="size-4 shrink-0" :class="eventIconClass(e.type)" />
+                        <span class="w-7 shrink-0 font-bold tabular-nums" style="color: var(--app-text)">{{ e.minute }}'</span>
+                        <span class="truncate" style="color: var(--app-text-muted)">{{ e.teamName }}</span>
+                        <span class="shrink-0 font-medium capitalize" style="color: var(--app-text-soft)">{{ eventLabel(e.type) }}</span>
+                        <span v-if="e.playerName" class="truncate text-xs" style="color: var(--app-text-muted)">– {{ e.playerName }}</span>
+                    </li>
+                    <li v-if="!eventFeed.length" class="app-muted-text text-sm">No events yet.</li>
+                </ul>
+            </UCard>
+
+            <UCard class="app-surface order-2 h-full lg:order-none">
+                <template #header>
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-shield" class="size-4 shrink-0 text-sky-400" />
+                    <span class="truncate">Away Lineup</span>
+                    <UBadge v-if="awayTeam?.lineupAutoSelected" color="neutral" variant="soft" size="xs" label="Auto" />
+                  </div>
+                </template>
+                <ul class="max-h-96 space-y-1.5 overflow-y-auto pr-1">
+                    <li v-for="p in awayLineup.starters" :key="p.id" class="flex items-center gap-2">
+                      <UBadge :color="p.color" variant="soft" size="xs" :label="p.slot" class="shrink-0" />
+                      <span class="min-w-0 truncate text-xs sm:text-sm" :class="p.statusClass">{{ p.name }}</span>
+                    </li>
+                    <li v-if="!awayLineup.starters.length" class="app-muted-text text-sm">No lineup available.</li>
+
+                    <template v-if="awayLineup.bench.length">
+                      <li class="app-kicker pt-3 text-[10px]">Bench</li>
+                      <li v-for="p in awayLineup.bench" :key="p.id" class="flex items-center gap-2">
+                        <UBadge :color="p.color" variant="soft" size="xs" :label="p.slot" class="shrink-0 opacity-60" />
+                        <span class="min-w-0 truncate text-xs sm:text-sm" :class="p.statusClass">{{ p.name }}</span>
+                      </li>
                     </template>
-                    <ul class="max-h-96 space-y-1.5 overflow-y-auto pr-1">
-                        <li v-for="p in awayTeam?.squad" :key="p.id" class="flex items-center gap-2">
-                          <UBadge :color="positionColor(p.position)" variant="soft" size="xs" :label="p.position" />
-                          <span class="text-sm" style="color: var(--app-text-soft)">{{ p.name }}</span>
-                        </li>
-                    </ul>
-                </UCard>
-            </div>
+                </ul>
+            </UCard>
         </div>
     </div>
 </template>

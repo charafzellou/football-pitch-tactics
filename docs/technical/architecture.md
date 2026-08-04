@@ -55,11 +55,15 @@ football-pitch-tactics/
     │   ├── middleware/          # Route guards
     │   ├── pages/               # File-based router
     │   └── stores/              # Pinia stores
+    ├── shared/                  # Code shared by client and server via Nuxt's #shared alias
+    │   └── lineup.ts            # Position normalisation + auto-select/resolve lineup logic
     └── server/                  # Nitro server layer
         ├── api/                 # HTTP route handlers
         ├── core/                # Game logic (match engine, tactics)
         └── db/                  # Database: schema, migrations, seed, client
 ```
+
+**`shared/`** exists so the exact same lineup rules run on both sides of the wire: the match engine (server) uses `shared/lineup.ts` to pick a CPU team's best XI, and the Dashboard lineup builder (client) imports the same module for position normalisation and slot counts. Nuxt exposes this directory automatically via the `#shared` import alias — no extra config was needed. See [match-engine.md](match-engine.md) and [tactics.md](../functional/tactics.md) for how it's used on each side.
 
 ---
 

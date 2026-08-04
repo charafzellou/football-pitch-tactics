@@ -4,6 +4,7 @@ import { matches, players, teams, matchEvents, eventType, game } from '../../../
 import { simulateMatch } from '../../../server/core/match-engine'
 import type { Tactic } from '../../../server/core/match-engine'
 import { TACTICS } from '../../../server/core/tactics'
+import { parseLineup } from '#shared/lineup'
 import { eq, and, isNull } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
@@ -48,9 +49,10 @@ export default defineEventHandler(async (event) => {
   const homeTactic = tacticsList.find(t => t.name === homeTeamData.tactics) || defaultTactic
   const awayTactic = tacticsList.find(t => t.name === awayTeamData.tactics) || defaultTactic
 
+  // A saved XI wins; teams without one (every CPU club) get an auto-selected lineup.
   const result = simulateMatch(
-    { id: homeTeamData.id, name: homeTeamData.name, squad: homeSquad, tactic: homeTactic },
-    { id: awayTeamData.id, name: awayTeamData.name, squad: awaySquad, tactic: awayTactic },
+    { id: homeTeamData.id, name: homeTeamData.name, squad: homeSquad, tactic: homeTactic, lineupIds: parseLineup(homeTeamData.lineup) },
+    { id: awayTeamData.id, name: awayTeamData.name, squad: awaySquad, tactic: awayTactic, lineupIds: parseLineup(awayTeamData.lineup) },
   )
 
   await db
@@ -143,5 +145,8 @@ export default defineEventHandler(async (event) => {
     homeScore: result.homeScore,
     awayScore: result.awayScore,
     events: result.events,
+    // The XIs that were actually simulated, so the client can render the same ones.
+    homeLineup: result.homeLineup.map(player => player.id),
+    awayLineup: result.awayLineup.map(player => player.id),
   }
 })

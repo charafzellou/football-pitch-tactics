@@ -57,10 +57,12 @@ Clubs that compete in a league. Both player-controlled and AI-controlled teams s
 | `league_id` | INTEGER | NOT NULL, FK → leagues.id | Which league the team competes in |
 | `bank_balance` | INTEGER | NOT NULL, DEFAULT 1000000 | Current cash balance in USD |
 | `tactics` | TEXT | nullable | Name of the selected tactic (e.g. "4-4-2") |
+| `lineup` | TEXT | nullable | Selected starting XI, stored as a JSON array of `players.id` (e.g. `"[12,45,...]"`) |
 
 **Notes:**
 - `bank_balance` is set to a random value between 1,000,000 and 50,000,000 during seeding.
-- `tactics` is `NULL` until the player (or simulation) sets one; the match engine falls back to `TACTICS[0]` (4-4-2) when `NULL`.
+- `tactics` is `NULL` until the player (or simulation) sets one; the match engine falls back to `DEFAULT_TACTIC_NAME` (4-4-2) when `NULL`.
+- `lineup` is `NULL` until the player saves an XI via `PUT /api/team/:id/lineup`. AI-controlled teams never set it, so they are always auto-selected. A saved lineup is only honoured if it still resolves to exactly 11 valid squad members at read time (e.g. a sold player invalidates it) — see [match-engine.md](match-engine.md) for the resolution logic shared between the client and the engine.
 
 ---
 
@@ -92,7 +94,7 @@ Individual footballers. Each player belongs to exactly one team.
 | `market_value` | INTEGER | NOT NULL | Transfer value in USD |
 | `team_id` | INTEGER | NOT NULL, FK → teams.id | Current club |
 
-**Position string inconsistency:** The seed file stores abbreviated positions (`GK`, `DEF`, `MID`, `ATT`). The match engine's `selectLineup()` filters by full English names (`Goalkeeper`, `Defender`, `Midfielder`, `Forward`/`Attacker`). The frontend normalises these via `normalizePosition()` in `pages/game/index.vue`. See [match-engine.md](match-engine.md) for details.
+**Position string handling:** The seed file stores abbreviated positions (`GK`, `DEF`, `MID`, `ATT`); some code paths historically expected full English names (`Goalkeeper`, `Defender`, `Midfielder`, `Forward`/`Attacker`). Both forms are now normalised to the canonical `GK | DF | MF | FW` slots by a single shared function, `normalizePosition()` in `frontend/shared/lineup.ts`, used by the match engine, the team/lineup API routes, and the Dashboard/Matchday pages. See [match-engine.md](match-engine.md) for details.
 
 **Market value calculation at seed time:**
 ```
@@ -172,8 +174,10 @@ Individual events that occurred during a simulated match.
 | `match_id` | INTEGER | NOT NULL, FK → matches.id | Parent fixture |
 | `minute` | INTEGER | NOT NULL | Game minute (1–90) |
 | `event_type` | INTEGER | NOT NULL, FK → event_type.id | Category of event |
-| `player_id` | INTEGER | nullable, FK → players.id | Player involved (nullable for team-level events) |
+| `player_id` | INTEGER | nullable, FK → players.id | Player involved |
 | `team_id` | INTEGER | NOT NULL, FK → teams.id | Team responsible for the event |
+
+**`player_id` is nullable at the schema level, but the match engine always sets it.** Every event the engine generates — goals, shots, misses, cards, fouls, injuries — picks a specific player from the side's on-pitch lineup, weighted by position (e.g. forwards shoot far more often than defenders; defenders and midfielders draw most cards). This matters for card events in particular: a yellow or red now always names *who* was booked, so the client can highlight that player rather than only the team. See [match-engine.md](match-engine.md#disciplinary-events).
 
 ---
 
@@ -189,5 +193,6 @@ Drizzle generates incremental SQL migration files in `server/db/migrations/`. Cu
 | `0003_watery_golden_guardian.sql` | Additional columns |
 | `0004_add_played_to_matches.sql` | Adds `played` column to `matches` |
 | `0004_late_quasar.sql` | Parallel branch migration (same version number, different content) |
+| `0005_add_lineup_to_teams.sql` | Adds `lineup` column to `teams` |
 
 **Warning:** Two files share the `0004_` prefix, which indicates a migration branch conflict. The `meta/_journal.json` file determines which is actually applied. Run `bun run db:push` to ensure the schema is up to date before running.
