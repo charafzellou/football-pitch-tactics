@@ -76,9 +76,17 @@ const leaguePosition = computed(() => {
   return idx === -1 ? null : idx + 1
 })
 
-// fetch opponent team by nextMatch awayTeamId (declared after nextMatch so computed is available)
-const { data: opponentTeam, refresh: refreshOpponent } = useFetch(() => `/api/team/${nextMatch.value?.awayTeamId}`, {
-  immediate: !!nextMatch.value?.awayTeamId,
+// The opponent is whichever side of the fixture isn't the player's own team —
+// nextMatch.homeTeamId when the player is away, awayTeamId when the player is home.
+const opponentTeamId = computed(() => {
+  if (!nextMatch.value || !team.value)
+    return undefined
+
+  return nextMatch.value.homeTeamId === team.value.id ? nextMatch.value.awayTeamId : nextMatch.value.homeTeamId
+})
+
+const { data: opponentTeam, refresh: refreshOpponent } = useFetch(() => `/api/team/${opponentTeamId.value}`, {
+  immediate: !!opponentTeamId.value,
 })
 
 const selectedTactic = ref('')
@@ -632,7 +640,7 @@ onMounted(async () => {
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-shield-half" class="size-4" style="color: var(--app-text-muted)" />
             <span class="text-sm" style="color: var(--app-text-muted)">vs</span>
-            <strong>{{ opponentTeam?.name ?? nextMatch.awayTeamId }}</strong>
+            <strong>{{ opponentTeam?.name ?? opponentTeamId }}</strong>
           </div>
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-calendar-clock" class="size-4" style="color: var(--app-text-muted)" />
