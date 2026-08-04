@@ -133,7 +133,7 @@ The feed label itself (`eventLabel()`) also goes through the normaliser: `yellow
 
 ## Feed Filters
 
-A realistic match generates ~63 events, dominated by crosses (21.5) and fouls (15.5), so the feed carries filter chips. All events are always stored in `match_events` — the filter is display-only.
+A match generates ~45 events (scaled down from real-world frequencies — see [match-engine.md](../technical/match-engine.md#event-rates-real-world-data-scaled-for-pacing)), still dominated by crosses (~15) and fouls (~11), so the feed carries filter chips. All events are always stored in `match_events` — the filter is display-only.
 
 | Chip | Shows |
 |---|---|

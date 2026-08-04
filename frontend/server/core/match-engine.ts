@@ -51,20 +51,23 @@ interface MatchSide {
 const MATCH_MINUTES = 90
 
 /**
- * Target average occurrences per match, both teams combined, calibrated to
- * real-world match data.
+ * Real-world average occurrences per match, both teams combined — sourced from
+ * published match studies. Summing these directly (~63.5) puts an event in
+ * ~70% of the 90 minutes, which reads as constant rather than as football: a
+ * live text feed isn't the same medium as a full statistical match report, so
+ * matching the literal per-90 count is the wrong target for it.
  *
- * These double as the per-minute probabilities: a type's chance of being drawn
- * in any given minute is `rate / MATCH_MINUTES`. The rates sum to ~63.5, well
- * under `MATCH_MINUTES`, so the leftover probability mass is the chance of a
- * quiet minute — which is what lets one draw per minute reproduce every target
- * average exactly while guaranteeing at most one event per minute.
+ * `EVENT_RATES` below scales every one of these down by the same factor
+ * (`EVENT_FREQUENCY_SCALE`) rather than trimming individual types, so goals
+ * stay exactly as likely relative to shots, cards relative to fouls, etc. —
+ * only the overall pace changes.
  *
  * `shotAttempt` covers every shot (13.1); it then resolves into exactly one of
  * `goal` / `shot_on_target` / `shot` so a single attempt never emits more than
- * one event. See SHOT_OUTCOME below.
+ * one event. See SHOT_OUTCOME below — its proportions are shares of
+ * `shotAttempt` itself, so they're unaffected by the scale factor.
  */
-const EVENT_RATES = {
+const REAL_WORLD_EVENT_RATES = {
   cross: 21.5,
   foul: 15.5,
   shotAttempt: 13.1,
@@ -78,13 +81,28 @@ const EVENT_RATES = {
   offside: 2.7,
   injury: 0.3,
   /**
-   * Straight reds only. Those second bookable offences add ~0.09 on top,
-   * landing total reds on the 0.25 target.
+   * Straight reds only. At full frequency, second bookable offences (see
+   * `book`) add ~0.09 on top, landing total reds on the 0.25 target. That
+   * carryover shrinks faster than linearly as EVENT_FREQUENCY_SCALE comes
+   * down — fewer yellow draws means fewer already-booked players to draw a
+   * second time — so this is above the naive 0.16 to compensate.
    */
-  straightRed: 0.16,
+  straightRed: 0.2,
 } as const
 
-type EventKind = keyof typeof EVENT_RATES
+/**
+ * Brings the ~63.5 real-world total down to ~45 events per match (midpoint of
+ * a 35–55 target), so the feed reads as sporadic rather than nonstop. Tune
+ * this single constant to redial the overall pace without touching the mix.
+ */
+const EVENT_FREQUENCY_SCALE = 45 / 63.47
+
+type EventKind = keyof typeof REAL_WORLD_EVENT_RATES
+
+const EVENT_RATES = Object.fromEntries(
+  (Object.entries(REAL_WORLD_EVENT_RATES) as [EventKind, number][])
+    .map(([kind, rate]) => [kind, rate * EVENT_FREQUENCY_SCALE]),
+) as Record<EventKind, number>
 
 const EVENT_DRAW = Object.entries(EVENT_RATES) as [EventKind, number][]
 

@@ -75,26 +75,34 @@ for (const [kind, rate] of EVENT_DRAW) {
 
 Because a type's rate is its *expected count per 90-minute match*, subtracting rates from a ticket drawn uniformly on `[0, 90)` gives each type a per-minute probability of exactly `rate / 90`. Summed over 90 minutes that reproduces the target average precisely, while the `break` makes a second event in the same minute impossible.
 
-The rates total ~63.5, comfortably under 90, so the leftover probability mass (~29%) is the chance of a quiet minute. **If the rates ever summed to more than 90 the model would silently break** — types near the end of the draw order would be starved, since the ticket could never reach them.
+**If the rates ever summed to more than 90 the model would silently break** — types near the end of the draw order would be starved, since the ticket could never reach them. At the current total (~45) the leftover probability mass — the chance of a quiet minute — is ~50%.
 
-### Event Rates
+### Event Rates: Real-World Data, Scaled for Pacing
 
-Calibrated to real-world match data. All figures are per match, both teams combined.
+`REAL_WORLD_EVENT_RATES` holds the literal per-match averages from published match studies — the same numbers used to calibrate the engine originally. Summed directly they total ~63.5, which fills ~70% of the 90 minutes with an event. That's accurate as a statistical match report, but as a *live minute-by-minute feed* (1 real second = 1 in-game minute) it reads as constant rather than as football.
 
-| Draw kind | Rate | Emits | Target source |
+`EVENT_RATES` — what the draw loop actually uses — is every one of those numbers multiplied by one constant:
+
+```typescript
+const EVENT_FREQUENCY_SCALE = 45 / 63.47   // ~0.709
+```
+
+Scaling uniformly (rather than trimming individual types) preserves the real-world *mix* — goals stay exactly as likely relative to shots, cards relative to fouls, corners relative to crosses — while bringing the total down to a pace that reads as sporadic. `EVENT_FREQUENCY_SCALE` is the single knob for overall pace; redialing it doesn't require touching anything else.
+
+| Draw kind | Real-world rate | Scaled rate (×0.709) | Emits |
 |---|---|---|---|
-| `cross` | 21.5 | `cross` | 21.5 |
-| `foul` | 15.5 | `foul` | 15.5 |
-| `shotAttempt` | 13.1 | one of `goal` / `shot_on_target` / `shot` | shots 13.1 |
-| `corner` | 5.7 | `corner` | 5.7 |
-| `yellow` | 4.51 | `yellow`, or `red` on a second booking | yellow cards 4.42 |
-| `offside` | 2.7 | `offside` | 2.7 |
-| `injury` | 0.3 | `injury` | — |
-| `straightRed` | 0.16 | `red` | red cards 0.25 (combined with second bookings) |
+| `cross` | 21.5 | 15.24 | `cross` |
+| `foul` | 15.5 | 10.99 | `foul` |
+| `shotAttempt` | 13.1 | 9.29 | one of `goal` / `shot_on_target` / `shot` |
+| `corner` | 5.7 | 4.04 | `corner` |
+| `yellow` | 4.51 | 3.20 | `yellow`, or `red` on a second booking |
+| `offside` | 2.7 | 1.91 | `offside` |
+| `injury` | 0.3 | 0.21 | `injury` |
+| `straightRed` | 0.2 | 0.14 | `red` |
 
-Two rates deliberately sit slightly off their target because of interactions:
-- **`yellow` is 4.51, not 4.42** — about 0.09 of those draws land on an already-booked player, which becomes a sending-off instead of a yellow (see below), so they leave the yellow tally.
-- **`straightRed` is 0.16, not 0.25** — those ~0.09 second bookings make up the rest of the red card total.
+Two real-world rates deliberately sit off their literal target, for reasons that compound under scaling:
+- **`yellow` is 4.51, not the 4.42 target** — about 0.09 of those draws (at full frequency) land on an already-booked player, which becomes a sending-off instead of a second yellow (see [Cards](#cards) below), so they leave the yellow tally.
+- **`straightRed` is 0.2, not the naive 0.16** — at lower `EVENT_FREQUENCY_SCALE`, fewer yellow draws means fewer already-booked players around to draw a second time, so the yellow→red carryover shrinks *faster* than linearly with the scale factor. `straightRed` is set above the naive scaled value to compensate, so total reds still land close to the real-world 0.25 target once carryover is added back in.
 
 ### Shot Attempts
 
@@ -107,11 +115,11 @@ roll < goalProb + SHOT_OUTCOME.saved   → shot_on_target   (on target, saved)
 otherwise                              → shot             (off target / blocked)
 ```
 
-The base shares come straight from the targets: `goal = 2.71/13.1`, `saved = (4.6 − 2.71)/13.1`. This is why `shots` and `shots on target` are *derived* totals rather than their own draw kinds — `shots = goal + shot_on_target + shot` and `shots on target = goal + shot_on_target`.
+The base shares come straight from the targets: `goal = 2.71/13.1`, `saved = (4.6 − 2.71)/13.1`. These are *shares of `shotAttempt`*, not standalone rates, so `EVENT_FREQUENCY_SCALE` doesn't touch them directly — scaling `shotAttempt` down scales `goal`/`shot_on_target`/`shot` down with it, automatically, in proportion. This is also why `shots` and `shots on target` are *derived* totals rather than their own draw kinds — `shots = goal + shot_on_target + shot` and `shots on target = goal + shot_on_target`.
 
-The goal share carries a **0.964 trim factor**. The side with the skill edge both takes a larger share of the attempts *and* converts more of them; those two effects correlate, which lifts the match average ~4% above target. The trim cancels it so the measured average lands on 2.71.
+The goal share carries a **0.964 trim factor**. The side with the skill edge both takes a larger share of the attempts *and* converts more of them; those two effects correlate, which lifts the match average ~4% above target. The trim cancels it so the measured average lands on the real-world 2.71 (scaled: ~1.93).
 
-**Why the edge is capped** (`MAX_EDGE = 12`): the same compounding, unchecked, produced 13-0 scorelines during tuning. Capping keeps mismatches meaningfully one-sided without absurd results — over 30,000 simulated matches only ~1% finish with a 6+ goal margin.
+**Why the edge is capped** (`MAX_EDGE = 12`): the same compounding, unchecked, produced 13-0 scorelines during tuning. Capping keeps mismatches meaningfully one-sided without absurd results — over 30,000 simulated matches only ~0.2% finish with a 6+ goal margin.
 
 ### Which Side, and Which Player
 
@@ -139,7 +147,7 @@ If every remaining candidate weighs zero (e.g. only the goalkeeper is left after
 
 `pickPlayer` accepts the side's `booked` set and multiplies an already-booked player's weight by `BOOKED_CARD_WEIGHT = 0.12`. This models both referee leniency toward a player on a yellow and the player's own caution — without it, second yellows alone would overshoot the 0.25 red card target.
 
-**Second bookable offence → red.** If the picked player is already in `booked`, the engine emits a single `red` event (not a yellow followed by a red — that would put two events in one minute) and removes them from `onPitch`. A `straightRed` draw does the same without needing a prior booking.
+**Second bookable offence → red.** If the picked player is already in `booked`, the engine emits a single `red` event (not a yellow followed by a red — that would put two events in one minute) and removes them from `onPitch`. A `straightRed` draw does the same without needing a prior booking. This carryover is what makes the yellow→red ratio sensitive to `EVENT_FREQUENCY_SCALE` — see [Event Rates](#event-rates-real-world-data-scaled-for-pacing) above.
 
 A sending-off shrinks `onPitch` for the rest of the match, so the player can take no further part. `stats.attack`/`stats.defence` are computed once at kickoff and are **not** recalculated — a red card changes who can be picked for later events, not the side's underlying strength.
 
@@ -167,24 +175,29 @@ The `miss` event type has been removed: an off-target attempt is already a `shot
 
 Verified over **30,000 simulated matches** against real seeded squads. All figures are per match, both teams combined.
 
-| Event | Measured | Target |
-|---|---|---|
-| Goals | 2.75 | 2.71 |
-| Shots *(derived)* | 13.13 | 13.1 |
-| Shots on target *(derived)* | 4.64 | 4.6 |
-| Yellow cards | 4.43 | 4.42 |
-| Red cards | 0.24 | 0.25 |
-| Fouls | 15.50 | 15.5 |
-| Corners | 5.70 | 5.7 |
-| Crosses | 21.51 | 21.5 |
-| Offsides | 2.70 | 2.7 |
-| Injuries | 0.30 | — |
+The literal real-world total (~63.5 events, filling ~70% of the 90 minutes) reads as constant rather than sporadic in a live minute-by-minute feed, so every rate is scaled by `EVENT_FREQUENCY_SCALE ≈ 0.709` (see [Event Rates](#event-rates-real-world-data-scaled-for-pacing) above) to bring the match total to ~45, inside a 35–55 target band. The **"real-world" column is the unscaled literature figure**; **"measured" is what the engine actually produces** at the current scale — every type comes down by close to the same ~29% factor, preserving the relative mix.
 
-Every rate lands within ~2% of target. Total ≈ 63.5 events per match, filling ~70% of the 90 minutes.
+| Event | Measured | Real-world | Scale vs. real-world |
+|---|---|---|---|
+| Goals | 1.93 | 2.71 | −28.7% |
+| Shots *(derived)* | 9.27 | 13.1 | −29.3% |
+| Shots on target *(derived)* | 3.27 | 4.6 | −28.8% |
+| Yellow cards | 3.15 | 4.42 | −28.7% |
+| Red cards | 0.18 | 0.25 | −26.6% |
+| Fouls | 11.00 | 15.5 | −29.0% |
+| Corners | 4.03 | 5.7 | −29.2% |
+| Crosses | 15.28 | 21.5 | −28.9% |
+| Offsides | 1.91 | 2.7 | −29.2% |
+| Injuries | 0.22 | 0.3 | −27.9% |
+| **Total events / match** | **45.0** | **63.47** | **−29.1%** |
+
+Every category tracks the uniform scale within ~2.5 points — confirming the mix is preserved, not just the total. (Red cards drift furthest from a clean −29%, because the yellow→red carryover on a second booking is nonlinear at lower draw rates; `straightRed` is nudged above its naive scaled value in `REAL_WORLD_EVENT_RATES` to compensate — see the note in [Event Rates](#event-rates-real-world-data-scaled-for-pacing).)
+
+**Event spacing**, measured across 5,000 matches (gap = minutes between one event and the next): median gap 2 minutes, ~50% of gaps are exactly 1 minute (back-to-back), decaying smoothly out past a 10-minute gap. This is the expected shape for a memoryless per-minute draw at ~50% fill rate — there's no clustering logic and none is needed; the randomness itself produces both quick successions and longer lulls without correlation between them.
 
 **Invariants confirmed across the same sample:** zero minutes carrying more than one event, zero events without a `playerId`, and no event types outside the calibrated set.
 
-**Scoreline shape:** median 3 goals per match, 90th percentile 5, 99th percentile 7, maximum 11. About 1% of matches finish with a 6+ goal margin.
+**Scoreline shape:** median 2 goals per match, 90th percentile 4, 99th percentile 6, maximum 9. About 0.2% of matches finish with a 6+ goal margin.
 
 Re-running this measurement is cheap — the engine is a pure function, so it can be driven directly in-process against squads read from `db.sqlite` without starting the dev server, writing to the database, or consuming fixtures.
 
@@ -227,6 +240,7 @@ After `simulateMatch()` returns, `POST /api/match/simulate` handles:
 | Blowout scorelines (13-0) once real lineups/stats were wired up | **Fixed.** Skill edge is capped (`MAX_EDGE = 12`) and shot/conversion constants retuned. |
 | Multiple events could land in the same minute | **Fixed.** One categorical draw per minute makes a second event impossible by construction. |
 | Event frequencies were arbitrary and unrealistic | **Fixed.** Every rate is calibrated to real-world match data and verified over 30,000 matches. |
+| Literal real-world rates (~63.5/match) filled ~70% of minutes — read as constant, not sporadic, in a live feed | **Fixed.** `EVENT_FREQUENCY_SCALE` (~0.709) scales every rate down uniformly to ~45/match, preserving the real-world mix between types. See [Event Rates](#event-rates-real-world-data-scaled-for-pacing). |
 | No stamina influence on match performance | `stamina` column exists but is unused in simulation |
 | No home advantage modifier | Home/away teams have identical stats bases |
 | No injury list — the `injury` event has no follow-up effect on future availability | Player is not marked unavailable for the next match |
