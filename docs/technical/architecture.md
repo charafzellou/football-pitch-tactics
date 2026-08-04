@@ -107,7 +107,7 @@ The database is **not** committed to git. Every fresh clone must run `db:setup` 
 ## Production Docker Setup
 
 The `docker-compose.yaml` defines two services:
-- **app**: Nuxt production build (Node) exposing port `3000` internally.
+- **app**: Nuxt production build (Node) exposing port `8080` internally.
 - **nginx**: Reverse-proxy listening on port `80`, forwarding to the app.
 
 The `Dockerfile` performs a multi-stage build: install → build → minimal runtime image.

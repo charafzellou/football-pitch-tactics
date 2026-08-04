@@ -81,15 +81,20 @@ await db
   .values(positionData)
   .returning()
 
-// Seed event types (map common match events to ids)
+// Seed event types (map common match events to ids).
+// Kept in sync with the event types the match engine generates — see
+// EVENT_RATES in server/core/match-engine.ts.
 const eventTypes = [
   { name: 'goal' },
   { name: 'shot' },
-  { name: 'miss' },
+  { name: 'shot_on_target' },
   { name: 'yellow' },
   { name: 'red' },
   { name: 'foul' },
   { name: 'injury' },
+  { name: 'corner' },
+  { name: 'cross' },
+  { name: 'offside' },
 ]
 await db
   .insert(schema.eventType)

@@ -117,14 +117,33 @@ Each displayed entry:
 | `goal` | `i-lucide-circle-dot` | `text-emerald-400` |
 | `yellow` (yellow card) | `i-lucide-square` | `text-amber-400` |
 | `red` (red card) | `i-lucide-square` | `text-red-500` |
-| `substitution` | `i-lucide-arrow-left-right` | `text-sky-400` |
+| `shot` | `i-lucide-crosshair` | `text-white/50` |
+| `shot_on_target` | `i-lucide-target` | `text-sky-400` |
+| `corner` | `i-lucide-flag-triangle-right` | `text-teal-400` |
+| `cross` | `i-lucide-move-right` | `text-white/50` |
+| `offside` | `i-lucide-ban` | `text-orange-300` |
 | `foul` | `i-lucide-flag` | `text-orange-400` |
 | `injury` | `i-lucide-heart-crack` | `text-rose-400` |
-| `shot` | `i-lucide-crosshair` | `text-white/50` |
-| `miss` | `i-lucide-circle-off` | `text-white/50` |
+| `substitution` | `i-lucide-arrow-left-right` | `text-sky-400` |
 | (other) | `i-lucide-zap` | `text-white/50` |
 
-The feed label itself (`eventLabel()`) also goes through the normaliser: `yellow` displays as "yellow card", `red` as "red card", everything else as the normalised type with underscores replaced by spaces.
+The feed label itself (`eventLabel()`) also goes through the normaliser: `yellow` displays as "yellow card", `red` as "red card", everything else as the normalised type with underscores replaced by spaces (so `shot_on_target` renders as "shot on target").
+
+---
+
+## Feed Filters
+
+A realistic match generates ~63 events, dominated by crosses (21.5) and fouls (15.5), so the feed carries filter chips. All events are always stored in `match_events` — the filter is display-only.
+
+| Chip | Shows |
+|---|---|
+| **All** (default) | Every event |
+| Goals | `goal` |
+| Shots | `goal`, `shot_on_target`, `shot` |
+| Cards | `yellow`, `red` |
+| Fouls | `foul`, `offside`, `injury` |
+
+Chips are styled with `.app-filter-chip` / `.app-filter-chip--active`. Because Goals is a subset of Shots, the counts overlap by design. When a filter matches nothing but the match has produced events, the panel reads "No events of this type yet." rather than the empty-match "No events yet."
 
 ---
 
@@ -217,6 +236,7 @@ Achieved with a `grid-cols-2 lg:grid-cols-3` grid, `order` utilities placing Hom
 | All events are pre-computed before playback starts | The "live" feel is purely cosmetic — the result is known the instant the player clicks Start. |
 | Pause does not affect server state | The server has already returned all events at simulation start. |
 | No half-time indication | The clock just counts to 90 continuously. |
+| At most one event per minute | A deliberate constraint of the engine, not a display limit — see [match-engine.md](../technical/match-engine.md#one-draw-per-minute). Real matches can cluster several events into one minute. |
 | No stamina influence on match performance, no home advantage | See [match-engine.md](../technical/match-engine.md#known-limitations--history) for the full list of engine-level gaps. |
 
 **Previously listed here, now fixed:**

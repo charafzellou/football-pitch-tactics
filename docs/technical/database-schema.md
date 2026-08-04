@@ -126,7 +126,11 @@ Lookup table for match event categories.
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
 | `name` | TEXT | NOT NULL | Event label |
 
-**Seed data:** `goal`, `shot`, `miss`, `yellow`, `red`, `foul`, `injury`.
+**Seed data:** `goal`, `shot`, `shot_on_target`, `yellow`, `red`, `foul`, `injury`, `corner`, `cross`, `offside`.
+
+Kept in sync with the event types the match engine generates — see `EVENT_RATES` in [match-engine.md](match-engine.md#event-rates). `miss` was removed in migration `0006` (an off-target attempt is already a `shot`); existing `miss` rows were reassigned to `shot` rather than deleted, so no match history was lost.
+
+Ids are not semantically meaningful — `POST /api/match/simulate` resolves types by **name** and inserts any it doesn't find, so a fresh seed and a migrated database can assign different ids to the same type without affecting behaviour.
 
 ---
 
@@ -177,7 +181,9 @@ Individual events that occurred during a simulated match.
 | `player_id` | INTEGER | nullable, FK → players.id | Player involved |
 | `team_id` | INTEGER | NOT NULL, FK → teams.id | Team responsible for the event |
 
-**`player_id` is nullable at the schema level, but the match engine always sets it.** Every event the engine generates — goals, shots, misses, cards, fouls, injuries — picks a specific player from the side's on-pitch lineup, weighted by position (e.g. forwards shoot far more often than defenders; defenders and midfielders draw most cards). This matters for card events in particular: a yellow or red now always names *who* was booked, so the client can highlight that player rather than only the team. See [match-engine.md](match-engine.md#disciplinary-events).
+**`player_id` is nullable at the schema level, but the match engine always sets it.** Every event the engine generates picks a specific player from the side's on-pitch lineup, weighted by position (e.g. forwards shoot far more often than defenders; defenders and midfielders draw most cards). This matters for card events in particular: a yellow or red now always names *who* was booked, so the client can highlight that player rather than only the team. See [match-engine.md](match-engine.md#which-side-and-which-player).
+
+**`minute` is unique within a match.** The engine makes a single categorical draw per minute, so no two events for the same `match_id` share a `minute`. This is not enforced by a database constraint, but the ~63 events a match generates always land in distinct minutes.
 
 ---
 
@@ -194,5 +200,6 @@ Drizzle generates incremental SQL migration files in `server/db/migrations/`. Cu
 | `0004_add_played_to_matches.sql` | Adds `played` column to `matches` |
 | `0004_late_quasar.sql` | Parallel branch migration (same version number, different content) |
 | `0005_add_lineup_to_teams.sql` | Adds `lineup` column to `teams` |
+| `0006_rework_event_types.sql` | Removes `miss` (reassigning its events to `shot`), adds `shot_on_target`, `corner`, `cross`, `offside` |
 
 **Warning:** Two files share the `0004_` prefix, which indicates a migration branch conflict. The `meta/_journal.json` file determines which is actually applied. Run `bun run db:push` to ensure the schema is up to date before running.

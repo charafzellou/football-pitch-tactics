@@ -239,7 +239,10 @@ function eventIcon(type: string): string {
     case 'foul': return 'i-lucide-flag'
     case 'injury': return 'i-lucide-heart-crack'
     case 'shot': return 'i-lucide-crosshair'
-    case 'miss': return 'i-lucide-circle-off'
+    case 'shot_on_target': return 'i-lucide-target'
+    case 'corner': return 'i-lucide-flag-triangle-right'
+    case 'cross': return 'i-lucide-move-right'
+    case 'offside': return 'i-lucide-ban'
     default: return 'i-lucide-zap'
   }
 }
@@ -252,9 +255,34 @@ function eventIconClass(type: string): string {
     case 'substitution': return 'text-sky-400'
     case 'foul': return 'text-orange-400'
     case 'injury': return 'text-rose-400'
+    case 'shot_on_target': return 'text-sky-400'
+    case 'corner': return 'text-teal-400'
+    case 'offside': return 'text-orange-300'
     default: return 'text-white/50'
   }
 }
+
+/**
+ * Feed filters. A realistic match produces ~63 events, dominated by crosses and
+ * fouls, so the feed can be narrowed to the categories worth watching.
+ */
+const EVENT_FILTERS = [
+  { id: 'all', label: 'All', types: null as string[] | null },
+  { id: 'goals', label: 'Goals', types: ['goal'] },
+  { id: 'shots', label: 'Shots', types: ['goal', 'shot_on_target', 'shot'] },
+  { id: 'cards', label: 'Cards', types: ['yellow', 'red'] },
+  { id: 'fouls', label: 'Fouls', types: ['foul', 'offside', 'injury'] },
+]
+
+const eventFilter = ref('all')
+
+const filteredEventFeed = computed(() => {
+  const active = EVENT_FILTERS.find(filter => filter.id === eventFilter.value)
+  if (!active?.types)
+    return eventFeed.value
+
+  return eventFeed.value.filter(entry => active.types!.includes(normalizeEventType(entry.type)))
+})
 
 /** Only events already played back count — the panels follow the clock. */
 const revealedEvents = computed(() => events.value.slice(0, playbackIndex.value))
@@ -409,14 +437,28 @@ const awayLineup = computed(() => buildLineup(awayTeam.value, awayStartingXi.val
 
             <UCard class="app-surface order-3 col-span-2 h-full lg:order-none lg:col-span-1">
                 <template #header>
-                  <div class="flex items-center gap-2">
-                    <UIcon name="i-lucide-activity" class="size-4 shrink-0 text-emerald-400" />
-                    <span class="truncate">Match Events</span>
+                  <div class="space-y-2.5">
+                    <div class="flex items-center gap-2">
+                      <UIcon name="i-lucide-activity" class="size-4 shrink-0 text-emerald-400" />
+                      <span class="truncate">Match Events</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        v-for="filter in EVENT_FILTERS"
+                        :key="filter.id"
+                        type="button"
+                        class="app-filter-chip"
+                        :class="{ 'app-filter-chip--active': eventFilter === filter.id }"
+                        @click="eventFilter = filter.id"
+                      >
+                        {{ filter.label }}
+                      </button>
+                    </div>
                   </div>
                 </template>
                 <ul class="max-h-96 space-y-2 overflow-y-auto pr-1">
                     <li
-                      v-for="e in eventFeed"
+                      v-for="e in filteredEventFeed"
                       :key="e.id"
                       class="flex items-center gap-2 text-sm animate-slide-in-left"
                     >
@@ -426,7 +468,9 @@ const awayLineup = computed(() => buildLineup(awayTeam.value, awayStartingXi.val
                         <span class="shrink-0 font-medium capitalize" style="color: var(--app-text-soft)">{{ eventLabel(e.type) }}</span>
                         <span v-if="e.playerName" class="truncate text-xs" style="color: var(--app-text-muted)">– {{ e.playerName }}</span>
                     </li>
-                    <li v-if="!eventFeed.length" class="app-muted-text text-sm">No events yet.</li>
+                    <li v-if="!filteredEventFeed.length" class="app-muted-text text-sm">
+                      {{ eventFeed.length ? 'No events of this type yet.' : 'No events yet.' }}
+                    </li>
                 </ul>
             </UCard>
 

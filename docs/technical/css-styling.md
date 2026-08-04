@@ -183,6 +183,12 @@ Named semantic classes that compose Tailwind utilities + CSS variables. Use thes
 | `.app-status-pill--warning` | "Incomplete lineup" | warning badge colours |
 | `.app-selection-pill` | "Selected" badge on player rows | `rounded-full px-2 text-[11px]`, selection colours |
 
+### Matchday Event Feed
+| Class | Purpose | Key styles |
+|---|---|---|
+| `.app-filter-chip` | Event feed filter chip | `rounded-full border px-2.5 text-[11px]`, surface-muted bg |
+| `.app-filter-chip--active` | Currently selected filter | selection badge colours + tinted border |
+
 ### Matchday Player Status
 | Class | Purpose | Key styles |
 |---|---|---|

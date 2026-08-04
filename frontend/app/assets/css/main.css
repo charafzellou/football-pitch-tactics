@@ -230,6 +230,24 @@
     background-color: var(--app-badge-warning-bg);
   }
 
+  /* Match event feed filter chips. */
+  .app-filter-chip {
+    @apply rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition;
+    color: var(--app-text-muted);
+    background-color: var(--app-surface-muted);
+    border-color: var(--app-surface-border);
+  }
+
+  .app-filter-chip:hover {
+    color: var(--app-text);
+  }
+
+  .app-filter-chip--active {
+    color: var(--app-badge-selection-text);
+    background-color: var(--app-badge-selection-bg);
+    border-color: color-mix(in srgb, var(--app-badge-selection-text) 40%, transparent);
+  }
+
   /* Lineup player states — booked, sent off, or not on the pitch. */
   .app-player-on-pitch {
     color: var(--app-text-soft);

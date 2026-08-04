@@ -2,6 +2,8 @@
 import { UButton, UBadge } from '#components'
 import { onMounted, h } from 'vue'
 import { useToast } from '#imports'
+import type { LineupSlot } from '#shared/lineup'
+import { LINEUP_SLOT_ORDER, normalizePosition } from '#shared/lineup'
 
 const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
 const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
@@ -12,11 +14,11 @@ function formatMoney(value: number) {
   return new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value ?? 0)
 }
 
-const positionColors: Record<string, 'sky' | 'emerald' | 'amber' | 'rose'> = {
+const positionColors: Record<LineupSlot, 'sky' | 'emerald' | 'amber' | 'rose'> = {
   GK: 'sky',
-  DEF: 'emerald',
-  MID: 'amber',
-  ATT: 'rose',
+  DF: 'emerald',
+  MF: 'amber',
+  FW: 'rose',
 }
 
 function statBar(value: number, max = 100) {
@@ -84,26 +86,27 @@ const lineupColumns = [
       })
     },
     cell: ({ row }: { row: any }) => {
-      const pos = String(row.original.position ?? '').toUpperCase().trim()
-      const color = positionColors[pos] ?? 'neutral'
-      return h(UBadge, { color, variant: 'soft', label: pos || '—', size: 'sm' })
+      const rawPosition = String(row.original.position ?? '')
+      const slot = normalizePosition(rawPosition)
+      const color = slot ? positionColors[slot] : 'neutral'
+      const label = slot ?? (rawPosition.toUpperCase().trim() || '—')
+      return h(UBadge, { color, variant: 'soft', label, size: 'sm' })
     },
-    // custom sorting to enforce GK, DEF, MID, ATT ordering
+    // custom sorting to enforce GK, DF, MF, FW ordering
     sortingFn: (rowA: any, rowB: any, columnId: string) => {
-      const order = ['GK', 'DEF', 'MID', 'ATT']
       const aRaw = rowA.getValue(columnId)
       const bRaw = rowB.getValue(columnId)
-      const a = String(aRaw ?? '').toUpperCase().trim()
-      const b = String(bRaw ?? '').toUpperCase().trim()
-      const ia = order.indexOf(a)
-      const ib = order.indexOf(b)
+      const aSlot = normalizePosition(String(aRaw ?? ''))
+      const bSlot = normalizePosition(String(bRaw ?? ''))
+      const ia = aSlot ? LINEUP_SLOT_ORDER.indexOf(aSlot) : -1
+      const ib = bSlot ? LINEUP_SLOT_ORDER.indexOf(bSlot) : -1
       // both known positions
       if (ia !== -1 && ib !== -1) return ia === ib ? 0 : ia > ib ? 1 : -1
       // one known, one unknown -> known comes first
       if (ia !== -1) return -1
       if (ib !== -1) return 1
       // both unknown -> fallback to string compare
-      return a.localeCompare(b)
+      return String(aRaw ?? '').localeCompare(String(bRaw ?? ''))
     }
   },
   {

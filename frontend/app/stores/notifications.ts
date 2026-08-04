@@ -13,7 +13,7 @@ export const useNotificationsStore = defineStore('notifications', {
       this.visible = true
       setTimeout(() => {
         this.visible = false
-      }, 3000)
+      }, 8080)
     },
   },
 })
