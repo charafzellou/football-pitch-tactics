@@ -91,7 +91,8 @@ Returns a team, its full squad, and its resolved lineup (saved XI if still valid
       "skillLevel": 85,
       "stamina": 100,
       "marketValue": 18000000,
-      "teamId": 3
+      "teamId": 3,
+      "injuredMatches": 0
     },
     ...
   ],
@@ -101,6 +102,8 @@ Returns a team, its full squad, and its resolved lineup (saved XI if still valid
   "lineupAutoSelected": false
 }
 ```
+
+`startingXi`/`bench` are already resolved with injured players excluded — see [tactics.md § Lineup Resolution and Auto-Select](../functional/tactics.md#lineup-resolution-and-auto-select) — so a client never needs to filter `squad` by `injuredMatches` itself for lineup purposes; it's only exposed for display (e.g. the Dashboard's "Injured · {n}" badge).
 
 - `lineup` — the raw saved lineup from `teams.lineup` (parsed JSON array of player ids), or `null` if none was ever saved.
 - `formation` — the slot counts for the team's current tactic (or the default 4-4-2 if no tactic is set).
@@ -266,45 +269,111 @@ Returns a single match with its events.
 
 ---
 
-### `POST /api/match/simulate`
-Simulates a match and persists the result.
+A match is no longer resolved with one call. Three routes cooperate — `start`, `advance`, `changes` — sharing the rewind logic in `server/core/match-session.ts`. See [match-engine.md](match-engine.md#persistence-handled-by-the-api-not-the-engine) for the full mechanics.
+
+### `POST /api/match/start`
+Kicks off a fresh match, or resumes one already in progress.
+
+**Request body:**
+```json
+{ "matchId": 77 }
+```
+If `matchId` is omitted, prefers a fixture already in progress (`matches.state IS NOT NULL`) over the earliest unplayed one by date.
+
+**What it does:**
+- **Fresh match:** resolves both XIs (via `resolveLineup`), builds `Team` objects flagging every non-player-controlled club `autoManaged: true`, calls `kickOff()`, and persists the resulting `MatchState` (minute 0) as `matches.state`.
+- **Resuming:** returns the persisted `state` plus every `match_events` row for the match (event type ids resolved back to names).
+
+**Response:**
+```json
+{ "matchId": 77, "state": { "minute": 0, "home": { ... }, "away": { ... } }, "events": [], "resumed": false }
+```
+
+**Errors:** Returns `{ "message": "No matches to simulate" }` (200) if there's nothing to start or resume.
+
+---
+
+### `POST /api/match/advance`
+Simulates from the given minute to the next break (45 or 90).
+
+**Request body:**
+```json
+{ "matchId": 77, "fromMinute": 46 }
+```
+
+**What it does:**
+1. `syncToMinute(matchId, fromMinute)` — rewinds/fast-forwards the persisted state to `fromMinute` by replaying `match_events` since the last snapshot, then **discards** any events past `fromMinute`. This is what lets a pause-and-substitute change the outcome: anything speculatively simulated past the pause point is thrown away.
+2. Rebuilds both `Team`s from the synced state's `tacticName` (so a mid-match formation change takes effect).
+3. Calls `simulateSegment(..., nextBreakAfter(fromMinute))` and batch-inserts the new events.
+
+Deliberately persists **nothing** about the segment it just simulated — not its end state, and not the result even when the segment runs to minute 90. Only `syncToMinute` writes `matches.state`, and only from events that actually happened. See the note in [match-engine.md](match-engine.md#persistence-handled-by-the-api-not-the-engine).
+
+> **Why finalisation is not here.** The second-half segment is simulated the instant the manager leaves half time — roughly 45 real seconds before the clock reaches 90, and a pause anywhere in that stretch rewinds and re-simulates the rest. Committing the result at simulation time nulled `matches.state` for the whole second half, so every mid-second-half pause failed with `400 Match has not started`. [`POST /api/match/finish`](#post-apimatchfinish) does it once the clock genuinely arrives.
+
+**Response:**
+```json
+{
+  "events": [
+    { "minute": 46, "eventType": "cross", "teamId": 3, "playerId": 42 },
+    ...
+  ],
+  "state": { "minute": 90, "home": { ... }, "away": { ... } },
+  "toMinute": 90
+}
+```
+
+---
+
+### `POST /api/match/finish`
+Full time — commits the result and settles fitness. Called by the client when its clock actually reaches minute 90.
 
 **Request body:**
 ```json
 { "matchId": 77 }
 ```
 
-If `matchId` is omitted, the earliest unplayed fixture is simulated instead.
-
 **What it does:**
-1. Looks up the match row (must have `homeScore IS NULL`).
-2. Fetches both squads from the DB.
-3. Reads each team's `tactics` setting (falls back to the default 4-4-2 if `NULL`) and its saved `lineup` (via the shared `parseLineup()`).
-4. Calls `simulateMatch()` from `server/core/match-engine.ts`, passing each team's saved lineup ids (if any) — see [match-engine.md](match-engine.md).
-5. Writes `homeScore`, `awayScore`, `played = 1` to the `matches` row.
-6. Persists all generated events to `match_events`, each with a `playerId` — see [match-engine.md](match-engine.md#player-selection-by-position).
-7. Advances `game.currentDate` to `matchDate + 1 second`.
+1. If the match is already finalised (`played = 1` and `state` null) it returns immediately — this is **idempotent**, so a refresh at 90' that resumes into a finished match doesn't error.
+2. Otherwise `syncToMinute(matchId, 90)`, then in one transaction: commits `homeScore`/`awayScore`/`played = 1`, nulls `matches.state`, advances `game.currentDate`, and settles fitness for every player in either squad:
+   - `players.stamina` is set to `recoveredStamina(endOfMatchStamina)` — the flat `+10` recovery applied on top of wherever the match left them, capped at 100. See [match-engine.md § Fatigue and Stamina](match-engine.md#fatigue-and-stamina).
+   - `players.injured_matches` is decremented by 1 (floor 0) for anyone already carrying one; anyone who went into this match's `injured` set gets it set fresh to a random 2–4. See [match-engine.md § Injuries](match-engine.md#injuries).
 
 **Response:**
 ```json
+{ "finished": true, "alreadyFinished": false, "homeScore": 2, "awayScore": 1 }
+```
+
+**Errors:** `400` if `matchId` is missing, `404` if the match doesn't exist.
+
+---
+
+### `POST /api/match/changes`
+Applies the player's substitutions and/or a formation change at a pause.
+
+**Request body:**
+```json
 {
   "matchId": 77,
-  "homeScore": 2,
-  "awayScore": 1,
-  "events": [
-    { "minute": 23, "eventType": "goal", "teamId": 3, "playerId": 42 },
-    ...
-  ],
-  "homeLineup": [42, 51, 77, ...],
-  "awayLineup": [12, 34, 56, ...],
-  "simulated": { ... full simulation result ... },
-  "updatedMatch": { ... match row with events ... }
+  "atMinute": 63,
+  "substitutions": [{ "playerOutId": 42, "playerInId": 51 }],
+  "tactic": "4-3-3"
 }
 ```
 
-`homeLineup`/`awayLineup` are the player ids the engine actually started with (resolved the same way `GET /api/team/:id` resolves `startingXi`). The Matchday page adopts these after simulation so its lineup panels match exactly what was simulated.
+**What it does:**
+1. Confirms the caller manages one of the two teams (`game.playerTeamId`).
+2. `syncToMinute(matchId, atMinute)`.
+3. Applies the changes via `applyMidMatchChanges()`, which validates each swap with `substitutionError()` **after folding in the ones before it**, and persists the result. A failure throws before anything is written, so it's a `400`, never a partial application.
+4. Records one `substitution` event per swap (`playerId` = coming on, `relatedPlayerId` = going off) at `atMinute`.
 
-**Errors:** Returns `{ "message": "No matches to simulate" }` (200) if the requested match is already played.
+> **Validation has to fold as it goes.** An earlier version pre-checked the whole batch against a single frozen snapshot of the side. That rejected legitimate chained substitutions — bringing a player on and then taking them off again in the same batch reads as "that player is not on the pitch" — and conversely let a batch exceed `MAX_SUBSTITUTIONS`, because `subsUsed` never advanced between checks. `applyMidMatchChanges()` is now the single validation path.
+
+**Response:**
+```json
+{ "state": { ... }, "events": [{ "minute": 63, "eventType": "substitution", "teamId": 3, "playerId": 51, "relatedPlayerId": 42 }] }
+```
+
+**Errors:** `400` for an illegal substitution or an unknown tactic name; `403` if the caller doesn't manage either team in the match.
 
 ---
 

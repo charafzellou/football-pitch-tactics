@@ -1,0 +1,12 @@
+-- Track injuries as an explicit countdown of matches missed.
+--
+-- Stamina alone can't express this: everyone regains
+-- STAMINA_RECOVERY_PER_MATCH before the next fixture (including players
+-- sitting out), so a stamina-based rule would clear an injury the moment it
+-- was applied. `injured_matches` is the only thing that blocks selection —
+-- low stamina deliberately does not, so a squad can never be locked out of
+-- naming eleven.
+--
+-- Decremented for both clubs at every full time; set to a fresh 2-4 when a
+-- player picks up an injury during a match. See shared/match-state.ts.
+ALTER TABLE `players` ADD `injured_matches` integer DEFAULT 0 NOT NULL;

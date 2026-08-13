@@ -2,7 +2,18 @@
 // A real implementation would be much more complex.
 
 import type { Formation, LineupSlot } from '#shared/lineup'
-import { normalizePosition, resolveLineup } from '#shared/lineup'
+import { LINEUP_SIZE, normalizePosition, resolveLineup } from '#shared/lineup'
+import type { MatchEvent, MatchSideState, MatchState } from '#shared/match-state'
+import {
+  HALF_TIME_MINUTE,
+  MAX_SUBSTITUTIONS,
+  STAMINA_DRAIN_BY_SLOT,
+  STAMINA_DRAIN_JITTER,
+  advanceMinute,
+  effectiveSkill,
+} from '#shared/match-state'
+
+export type { MatchEvent } from '#shared/match-state'
 
 // Types for tactics and players
 export interface Tactic {
@@ -20,6 +31,8 @@ export interface Player {
   stamina: number
   marketValue: number
   teamId: number
+  /** Matches remaining out injured. Anything above 0 makes them unselectable. */
+  injuredMatches?: number
 }
 
 export interface Team {
@@ -29,23 +42,8 @@ export interface Team {
   tactic: Tactic
   /** The XI saved for this team. Omitted for CPU clubs — one is auto-selected. */
   lineupIds?: number[] | null
-}
-
-export interface MatchEvent {
-  minute: number
-  eventType: string
-  teamId: number
-  playerId?: number
-}
-
-/** Who is on the pitch and what has happened to them, for one team. */
-interface MatchSide {
-  team: Team
-  lineup: Player[]
-  onPitch: Player[]
-  booked: Set<number>
-  stats: { attack: number; defence: number }
-  score: number
+  /** CPU-controlled clubs manage their own substitutions during the match. */
+  autoManaged?: boolean
 }
 
 const MATCH_MINUTES = 90
@@ -68,17 +66,17 @@ const MATCH_MINUTES = 90
  * `shotAttempt` itself, so they're unaffected by the scale factor.
  */
 const REAL_WORLD_EVENT_RATES = {
-  cross: 21.5,
-  foul: 15.5,
-  shotAttempt: 13.1,
-  corner: 5.7,
+  cross: 19.5,
+  foul: 13.5,
+  shotAttempt: 11.1,
+  corner: 4.7,
   /**
    * Slightly above the 4.42 target: roughly 0.09 of these draws land on a
    * player already booked, which `book` turns into a sending-off rather than a
    * second yellow, so they leave the yellow tally.
    */
-  yellow: 4.51,
-  offside: 2.7,
+  yellow: 3.51,
+  offside: 1.7,
   injury: 0.3,
   /**
    * Straight reds only. At full frequency, second bookable offences (see
@@ -91,11 +89,11 @@ const REAL_WORLD_EVENT_RATES = {
 } as const
 
 /**
- * Brings the ~63.5 real-world total down to ~45 events per match (midpoint of
+ * Brings the ~64 real-world total down to ~45 events per match (midpoint of
  * a 35–55 target), so the feed reads as sporadic rather than nonstop. Tune
  * this single constant to redial the overall pace without touching the mix.
  */
-const EVENT_FREQUENCY_SCALE = 45 / 63.47
+const EVENT_FREQUENCY_SCALE = 45 / 64
 
 type EventKind = keyof typeof REAL_WORLD_EVENT_RATES
 
@@ -146,12 +144,29 @@ const OFFSIDE_WEIGHTS: Record<LineupSlot, number> = { GK: 0, DF: 1, MF: 2, FW: 7
 const DISCIPLINE_WEIGHTS: Record<LineupSlot, number> = { GK: 1, DF: 4, MF: 4, FW: 2 }
 const INJURY_WEIGHTS: Record<LineupSlot, number> = { GK: 1, DF: 3, MF: 3, FW: 3 }
 
-function calculateTeamStats(lineup: Player[], tactic: Tactic) {
-  // Simple: average skill + tactic modifiers
-  if (!lineup.length)
+/**
+ * Minutes at which a CPU-managed side reviews its bench. Mirrors the moments
+ * a human manager is naturally prompted to think about changes: the
+ * half-time break, then a couple of common real-world substitution windows.
+ */
+const AI_REVIEW_MINUTES = [HALF_TIME_MINUTE, 60, 70, 80]
+
+/** Minimum effective-skill gain required for the CPU to make a swap. */
+const AI_UPGRADE_MARGIN = 2
+
+/**
+ * Divides by a nominal eleven rather than by however many are actually on
+ * the pitch. With a true average, losing a below-average player *raises*
+ * the side's rating — so a red card or an unreplaced injury could make a
+ * team stronger. Against a fixed eleven, every missing player costs the
+ * side roughly a eleventh of its rating (~7-8 points, against MAX_EDGE 12),
+ * which is what being a man down should feel like. A full XI is unchanged.
+ */
+function calculateTeamStats(onPitch: Player[], stamina: Record<number, number>, tactic: Tactic) {
+  if (!onPitch.length)
     return { attack: 0, defence: 0 }
 
-  const avgSkill = lineup.reduce((acc, p) => acc + p.skillLevel, 0) / lineup.length
+  const avgSkill = onPitch.reduce((acc, p) => acc + effectiveSkill(p.skillLevel, stamina[p.id] ?? 100), 0) / LINEUP_SIZE
   return {
     attack: avgSkill + tactic.modifiers.attack,
     defence: avgSkill + tactic.modifiers.defence,
@@ -194,152 +209,292 @@ function pickPlayer(
   return candidates[candidates.length - 1]
 }
 
-function createSide(team: Team): MatchSide {
-  const { starters } = resolveLineup(team.squad, team.tactic.formation, team.lineupIds)
+function squadMapFor(team: Team): Map<number, Player> {
+  return new Map(team.squad.map(player => [player.id, player]))
+}
+
+function createSideState(team: Team): MatchSideState {
+  const { starters, bench } = resolveLineup(team.squad, team.tactic.formation, team.lineupIds)
+  const stamina: Record<number, number> = {}
+  const drainRates: Record<number, number> = {}
+
+  for (const player of team.squad) {
+    // `players.stamina` already holds the post-recovery value written at the
+    // end of the previous match, so it's used as-is.
+    stamina[player.id] = player.stamina
+
+    // Rolled once, here, rather than per minute — see the note on
+    // `MatchSideState.drainRates`. This is the only randomness in the
+    // stamina model, and it's the reason `advanceMinute` stays replayable.
+    const slot = normalizePosition(player.position) ?? 'MF'
+    const jitter = 1 + (Math.random() * 2 - 1) * STAMINA_DRAIN_JITTER
+    drainRates[player.id] = STAMINA_DRAIN_BY_SLOT[slot] * jitter
+  }
 
   return {
-    team,
-    lineup: starters,
-    onPitch: [...starters],
-    booked: new Set<number>(),
-    stats: calculateTeamStats(starters, team.tactic),
+    teamId: team.id,
+    tacticName: team.tactic.name,
+    startingXi: starters.map(p => p.id),
+    onPitch: starters.map(p => p.id),
+    // A player carrying an injury is never offered as a substitute.
+    bench: bench.filter(p => !(p.injuredMatches ?? 0)).map(p => p.id),
+    usedPlayers: [],
+    booked: [],
+    sentOff: [],
+    subsUsed: 0,
+    stamina,
+    drainRates,
+    injured: [],
     score: 0,
   }
 }
 
-export function simulateMatch(
-  homeTeam: Team,
-  awayTeam: Team
-): { homeScore: number; awayScore: number; events: MatchEvent[]; homeLineup: Player[]; awayLineup: Player[] } {
-  const home = createSide(homeTeam)
-  const away = createSide(awayTeam)
+/** Kicks off a fresh match: resolves both XIs and seeds match state at minute 0. */
+export function kickOff(homeTeam: Team, awayTeam: Team): MatchState {
+  return {
+    minute: 0,
+    home: createSideState(homeTeam),
+    away: createSideState(awayTeam),
+  }
+}
 
+/**
+ * Simulates from `state.minute + 1` up to and including `toMinute`, honouring
+ * whatever substitutions/formation already happened before this call (baked
+ * into `state` and `homeTeam.tactic` / `awayTeam.tactic`). Stats are
+ * recomputed every minute from the current pitch and stamina, so a
+ * substitution or a tired legs takes effect immediately.
+ */
+export function simulateSegment(
+  homeTeam: Team,
+  awayTeam: Team,
+  state: MatchState,
+  toMinute: number,
+): { state: MatchState; events: MatchEvent[] } {
+  const homeSquad = squadMapFor(homeTeam)
+  const awaySquad = squadMapFor(awayTeam)
   const events: MatchEvent[] = []
 
-  /** How far a side's attack out-rates the opponent's defence, damped. */
-  function edgeOver(side: MatchSide, opponent: MatchSide) {
-    return Math.max(-MAX_EDGE, Math.min(MAX_EDGE, side.stats.attack - opponent.stats.defence))
-  }
+  let current = state
 
-  // The better side sees more of the ball, so it takes a larger share of the
-  // attacking events. Bounded to 25/75 by MAX_EDGE.
-  const homeAttackShare = 0.5 + (edgeOver(home, away) - edgeOver(away, home)) / 96
+  const onPitchPlayers = (side: MatchSideState, squad: Map<number, Player>) =>
+    side.onPitch.map(id => squad.get(id)).filter((p): p is Player => Boolean(p))
 
-  // The side under pressure does more of the fouling — damped by half, since
-  // possession is only one of the reasons fouls happen.
-  const homeFoulShare = 0.5 + (0.5 - homeAttackShare) * 0.5
+  for (let minute = current.minute + 1; minute <= toMinute; minute++) {
+    const minuteEvents: MatchEvent[] = []
 
-  const attackingSide = () => (Math.random() < homeAttackShare ? home : away)
-  const foulingSide = () => (Math.random() < homeFoulShare ? home : away)
+    // CPU-managed sides review their bench at fixed minutes — and react to
+    // an injury the moment it happens, rather than leaving themselves a man
+    // down until the next scheduled review.
+    for (const [team, squad, other] of [
+      [homeTeam, homeSquad, 'home'],
+      [awayTeam, awaySquad, 'away'],
+    ] as [Team, Map<number, Player>, 'home' | 'away'][]) {
+      if (!team.autoManaged)
+        continue
 
-  function record(minute: number, side: MatchSide, eventType: string, player: Player) {
-    events.push({ minute, eventType, teamId: side.team.id, playerId: player.id })
-  }
+      const side = current[other]
+      const unreplacedInjury = side.injured.find(id => !side.usedPlayers.includes(id))
+      const autoSub = unreplacedInjury !== undefined
+        ? pickInjuryReplacement(side, squad, unreplacedInjury)
+        : AI_REVIEW_MINUTES.includes(minute) ? pickAutoSub(side, squad) : null
 
-  /** One shot, resolving into exactly one of goal / on target / off target. */
-  function shotAttempt(minute: number) {
-    const side = attackingSide()
-    const opponent = side === home ? away : home
-    const shooter = pickPlayer(side.onPitch, SHOOTING_WEIGHTS)
-    if (!shooter)
-      return
-
-    // A stronger attack converts more of what it creates.
-    const goalProb = SHOT_OUTCOME.goal * (1 + edgeOver(side, opponent) / 40)
-    const roll = Math.random()
-
-    if (roll < goalProb) {
-      side.score++
-      record(minute, side, 'goal', shooter)
-    }
-    else if (roll < goalProb + SHOT_OUTCOME.saved) {
-      record(minute, side, 'shot_on_target', shooter)
-    }
-    else {
-      record(minute, side, 'shot', shooter)
-    }
-  }
-
-  function attackingEvent(minute: number, eventType: string, weights: Record<LineupSlot, number>) {
-    const side = attackingSide()
-    const player = pickPlayer(side.onPitch, weights)
-    if (player)
-      record(minute, side, eventType, player)
-  }
-
-  function defensiveEvent(minute: number, eventType: string, weights: Record<LineupSlot, number>) {
-    const side = foulingSide()
-    const player = pickPlayer(side.onPitch, weights)
-    if (player)
-      record(minute, side, eventType, player)
-  }
-
-  /**
-   * A bookable offence. If the player is already carrying a yellow this is a
-   * second bookable offence, which is a sending-off — emitted as a single `red`
-   * so the minute still holds exactly one event.
-   */
-  function book(minute: number) {
-    const side = foulingSide()
-    const player = pickPlayer(side.onPitch, DISCIPLINE_WEIGHTS, side.booked)
-    if (!player)
-      return
-
-    if (side.booked.has(player.id)) {
-      record(minute, side, 'red', player)
-      side.onPitch = side.onPitch.filter(p => p.id !== player.id)
-      return
+      if (autoSub)
+        minuteEvents.push({ minute, eventType: 'substitution', teamId: side.teamId, playerId: autoSub.playerInId, relatedPlayerId: autoSub.playerOutId })
     }
 
-    side.booked.add(player.id)
-    record(minute, side, 'yellow', player)
-  }
-
-  /** A straight red — violent conduct, denying a clear goalscoring chance. */
-  function sendOff(minute: number) {
-    const side = foulingSide()
-    const player = pickPlayer(side.onPitch, DISCIPLINE_WEIGHTS)
-    if (!player)
-      return
-
-    record(minute, side, 'red', player)
-    side.onPitch = side.onPitch.filter(p => p.id !== player.id)
-  }
-
-  function emit(kind: EventKind, minute: number) {
-    switch (kind) {
-      case 'shotAttempt': return shotAttempt(minute)
-      case 'cross': return attackingEvent(minute, 'cross', CROSSING_WEIGHTS)
-      case 'corner': return attackingEvent(minute, 'corner', CORNER_WEIGHTS)
-      case 'offside': return attackingEvent(minute, 'offside', OFFSIDE_WEIGHTS)
-      case 'foul': return defensiveEvent(minute, 'foul', DISCIPLINE_WEIGHTS)
-      case 'injury': return defensiveEvent(minute, 'injury', INJURY_WEIGHTS)
-      case 'yellow': return book(minute)
-      case 'straightRed': return sendOff(minute)
+    // Fold any AI substitutions in directly (not via advanceMinute, which
+    // would also drain stamina for `minute` a second time below) so the
+    // swap affects the stats computed for this same minute.
+    let working = current
+    for (const event of minuteEvents) {
+      const sideKey = event.teamId === working.home.teamId ? 'home' : 'away'
+      working = { ...working, [sideKey]: foldSubstitution(working[sideKey], event) }
     }
-  }
 
-  for (let minute = 1; minute <= MATCH_MINUTES; minute++) {
-    // A single categorical draw decides this minute: the first type whose rate
-    // the ticket falls within wins, and a ticket past every rate means a quiet
-    // minute. At most one event per minute, by construction.
-    let ticket = Math.random() * MATCH_MINUTES
+    const homeOnPitch = onPitchPlayers(working.home, homeSquad)
+    const awayOnPitch = onPitchPlayers(working.away, awaySquad)
+    const homeStats = calculateTeamStats(homeOnPitch, working.home.stamina, homeTeam.tactic)
+    const awayStats = calculateTeamStats(awayOnPitch, working.away.stamina, awayTeam.tactic)
 
-    for (const [kind, rate] of EVENT_DRAW) {
-      ticket -= rate
+    /** How far a side's attack out-rates the opponent's defence, damped. */
+    const edgeOver = (attack: number, defence: number) =>
+      Math.max(-MAX_EDGE, Math.min(MAX_EDGE, attack - defence))
 
-      if (ticket < 0) {
-        emit(kind, minute)
+    const homeEdge = edgeOver(homeStats.attack, awayStats.defence)
+    const awayEdge = edgeOver(awayStats.attack, homeStats.defence)
+
+    // The better side sees more of the ball, so it takes a larger share of
+    // the attacking events. Bounded to 25/75 by MAX_EDGE.
+    const homeAttackShare = 0.5 + (homeEdge - awayEdge) / 96
+    // The side under pressure does more of the fouling — damped by half,
+    // since possession is only one of the reasons fouls happen.
+    const homeFoulShare = 0.5 + (0.5 - homeAttackShare) * 0.5
+
+    const isHome = Math.random() < homeAttackShare
+    const foulIsHome = Math.random() < homeFoulShare
+
+    const attackSide = isHome ? working.home : working.away
+    const attackOnPitch = isHome ? homeOnPitch : awayOnPitch
+    const attackEdge = isHome ? homeEdge : awayEdge
+
+    const foulSide = foulIsHome ? working.home : working.away
+    const foulOnPitch = foulIsHome ? homeOnPitch : awayOnPitch
+    const foulBooked = new Set(foulSide.booked)
+
+    function record(eventType: string, player: Player, side: MatchSideState) {
+      minuteEvents.push({ minute, eventType, teamId: side.teamId, playerId: player.id })
+    }
+
+    switch (drawKind()) {
+      case 'shotAttempt': {
+        const shooter = pickPlayer(attackOnPitch, SHOOTING_WEIGHTS)
+        if (shooter) {
+          const goalProb = SHOT_OUTCOME.goal * (1 + attackEdge / 40)
+          const roll = Math.random()
+          if (roll < goalProb)
+            record('goal', shooter, attackSide)
+          else if (roll < goalProb + SHOT_OUTCOME.saved)
+            record('shot_on_target', shooter, attackSide)
+          else
+            record('shot', shooter, attackSide)
+        }
         break
       }
+      case 'cross': {
+        const player = pickPlayer(attackOnPitch, CROSSING_WEIGHTS)
+        if (player) record('cross', player, attackSide)
+        break
+      }
+      case 'corner': {
+        const player = pickPlayer(attackOnPitch, CORNER_WEIGHTS)
+        if (player) record('corner', player, attackSide)
+        break
+      }
+      case 'offside': {
+        const player = pickPlayer(attackOnPitch, OFFSIDE_WEIGHTS)
+        if (player) record('offside', player, attackSide)
+        break
+      }
+      case 'foul': {
+        const player = pickPlayer(foulOnPitch, DISCIPLINE_WEIGHTS)
+        if (player) record('foul', player, foulSide)
+        break
+      }
+      case 'injury': {
+        const player = pickPlayer(foulOnPitch, INJURY_WEIGHTS)
+        if (player) record('injury', player, foulSide)
+        break
+      }
+      case 'yellow': {
+        const player = pickPlayer(foulOnPitch, DISCIPLINE_WEIGHTS, foulBooked)
+        if (player) {
+          if (foulBooked.has(player.id))
+            record('red', player, foulSide)
+          else
+            record('yellow', player, foulSide)
+        }
+        break
+      }
+      case 'straightRed': {
+        const player = pickPlayer(foulOnPitch, DISCIPLINE_WEIGHTS)
+        if (player) record('red', player, foulSide)
+        break
+      }
+      case null:
+        break
     }
+
+    current = advanceMinute(working, minute, minuteEvents)
+    events.push(...minuteEvents)
   }
 
-  return {
-    homeScore: home.score,
-    awayScore: away.score,
-    events,
-    homeLineup: home.lineup,
-    awayLineup: away.lineup,
+  return { state: current, events }
+}
+
+/** A single categorical draw: the first type whose rate the ticket falls within wins. */
+function drawKind(): EventKind | null {
+  let ticket = Math.random() * MATCH_MINUTES
+
+  for (const [kind, rate] of EVENT_DRAW) {
+    ticket -= rate
+    if (ticket < 0)
+      return kind
   }
+
+  return null
+}
+
+/** Applies a substitution event directly to a side, without draining stamina again. */
+function foldSubstitution(side: MatchSideState, event: MatchEvent): MatchSideState {
+  if (!event.playerId || !event.relatedPlayerId)
+    return side
+
+  return {
+    ...side,
+    onPitch: [...side.onPitch.filter(id => id !== event.relatedPlayerId), event.playerId],
+    bench: side.bench.filter(id => id !== event.playerId),
+    usedPlayers: [...side.usedPlayers, event.relatedPlayerId],
+    subsUsed: side.subsUsed + 1,
+  }
+}
+
+/** Picks a CPU substitution — weakest outfielder off, best same-slot bench player on — if it's a clear upgrade. */
+function pickAutoSub(side: MatchSideState, squad: Map<number, Player>): { playerOutId: number; playerInId: number } | null {
+  if (side.subsUsed >= MAX_SUBSTITUTIONS)
+    return null
+
+  const onPitch = side.onPitch.map(id => squad.get(id)).filter((p): p is Player => Boolean(p))
+  const bench = side.bench.map(id => squad.get(id)).filter((p): p is Player => Boolean(p))
+  if (!bench.length)
+    return null
+
+  const outfield = onPitch.filter(p => normalizePosition(p.position) !== 'GK')
+  if (!outfield.length)
+    return null
+
+  const weakest = outfield.reduce((worst, p) =>
+    effectiveSkill(p.skillLevel, side.stamina[p.id] ?? 100) < effectiveSkill(worst.skillLevel, side.stamina[worst.id] ?? 100) ? p : worst)
+
+  const weakestSlot = normalizePosition(weakest.position)
+  const candidates = bench.filter(p => normalizePosition(p.position) === weakestSlot)
+  if (!candidates.length)
+    return null
+
+  const best = candidates.reduce((top, p) =>
+    effectiveSkill(p.skillLevel, side.stamina[p.id] ?? 100) > effectiveSkill(top.skillLevel, side.stamina[top.id] ?? 100) ? p : top)
+
+  const gain = effectiveSkill(best.skillLevel, side.stamina[best.id] ?? 100) - effectiveSkill(weakest.skillLevel, side.stamina[weakest.id] ?? 100)
+  if (gain < AI_UPGRADE_MARGIN)
+    return null
+
+  return { playerOutId: weakest.id, playerInId: best.id }
+}
+
+/**
+ * Replaces an injured CPU player. Unlike `pickAutoSub` there's no upgrade
+ * margin to clear — the side is already a man down, so any available body
+ * beats playing short. Prefers the same position, then falls back to the
+ * best outfielder left on the bench.
+ */
+function pickInjuryReplacement(
+  side: MatchSideState,
+  squad: Map<number, Player>,
+  injuredId: number,
+): { playerOutId: number; playerInId: number } | null {
+  if (side.subsUsed >= MAX_SUBSTITUTIONS)
+    return null
+
+  const bench = side.bench.map(id => squad.get(id)).filter((p): p is Player => Boolean(p))
+  if (!bench.length)
+    return null
+
+  const injuredSlot = normalizePosition(squad.get(injuredId)?.position ?? '')
+  const sameSlot = bench.filter(p => normalizePosition(p.position) === injuredSlot)
+  const pool = sameSlot.length ? sameSlot : bench
+
+  const best = pool.reduce((top, p) =>
+    effectiveSkill(p.skillLevel, side.stamina[p.id] ?? 100) > effectiveSkill(top.skillLevel, side.stamina[top.id] ?? 100) ? p : top)
+
+  return { playerOutId: injuredId, playerInId: best.id }
 }

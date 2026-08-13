@@ -82,7 +82,10 @@ Each player in the squad table can be:
 |---|---|---|
 | Selected | "Selected" (success/soft) | `player.id` is in `selectedPlayers` |
 | Selectable | "Select" (primary/solid) | slot available for their position |
-| Unavailable | "Unavailable" (ghost/outline) | lineup full, position full, or unknown position |
+| Unavailable | "Unavailable" (ghost/outline) | lineup full, position full, unknown position, or injured |
+| Injured | Blocked, reason `"Injured ({n} matches)"` | `player.injuredMatches > 0` — checked before every other rule, so an injured player never shows a slot-based reason instead |
+
+**Low stamina never blocks selection.** A tired player is still pickable — just weaker in the engine's `effectiveSkill` calculation — so a squad can never be locked out of naming eleven players. Only `injuredMatches > 0` does that; see [match-engine.md § Injuries](../technical/match-engine.md#injuries). The squad table marks an injured row with a red `Injured · {n}` badge and muted text, the same treatment the Team page uses for stamina.
 
 ---
 
@@ -113,8 +116,8 @@ All AI teams have `tactics = NULL` in the initial seed data. They always simulat
 
 Every team that enters a match — human or AI — resolves to an XI through the same shared function, `resolveLineup()` in `frontend/shared/lineup.ts`:
 
-1. **Saved lineup, if valid.** If `teams.lineup` names exactly 11 players still present in the squad, that XI starts. (A player sold since the lineup was saved silently invalidates it — the saved list won't resolve to 11, and auto-selection takes over instead of erroring.)
-2. **Auto-selected, otherwise.** `autoSelectLineup()` fills the tactic's formation slots (`GK`, `DF`, `MF`, `FW`) with the squad's highest-`skillLevel` players in each slot. If the squad is short in some slot, the shortfall is filled with the best remaining outfield players — a spare goalkeeper is used only as a last resort, so a squad with too few defenders doesn't end up fielding three keepers.
+1. **Saved lineup, if valid.** If `teams.lineup` names exactly 11 players still present in the squad **and none of them are currently injured**, that XI starts. (A player sold, or injured, since the lineup was saved silently invalidates it the same way — the saved list won't resolve to 11, and auto-selection takes over instead of erroring.)
+2. **Auto-selected, otherwise.** `autoSelectLineup()` fills the tactic's formation slots (`GK`, `DF`, `MF`, `FW`) with the squad's highest-`skillLevel` **fit** players in each slot — anyone with `injuredMatches > 0` is skipped first. If the squad is short in some slot, the shortfall is filled with the best remaining outfield players; a spare goalkeeper is used only as a last resort, and an injured player is only ever included if there's no other way to reach eleven — fielding someone carrying a knock is bad, but fielding nine is worse.
 
 **Every AI-controlled club is always auto-selected**, since only the player's own team currently has a "save lineup" UI. The player's team is auto-selected too, until they visit the Dashboard and save an XI — the very first match of a new save, before the lineup builder has been touched, is auto-selected for both sides.
 
@@ -123,7 +126,23 @@ Every team that enters a match — human or AI — resolves to an XI through the
 **Where this shows up:**
 - `GET /api/team/:id` resolves and returns `startingXi` (array of ids), `bench` (array of ids), and `lineupAutoSelected` (boolean) alongside the raw squad — see [api-routes.md](../technical/api-routes.md).
 - The Matchday lineup panels render exactly `startingXi`/`bench` from that response, and show an "Auto" badge when `lineupAutoSelected` is true. See [matchday.md](matchday.md).
-- The match engine (`simulateMatch()`) calls the same `resolveLineup()` internally, so the XI shown in the Matchday preview and the XI that actually plays are guaranteed to match (barring a lineup change made between page load and kickoff, which the engine's own resolution call — not the preview — has final say over).
+- The match engine (`kickOff()`) calls the same `resolveLineup()` internally, so the XI shown in the Matchday preview and the XI that actually kicks off are guaranteed to match (barring a lineup change made between page load and kickoff, which the engine's own resolution call — not the preview — has final say over). Once the match is under way, the *live* XI can differ from this initial resolution — see below.
+
+---
+
+## Mid-Match Tactical Changes
+
+Everything above resolves the lineup a team **starts** with. During the match itself, the player's own team can change both the XI (substitutions) and the formation from `MatchTacticsPanel`, at any pause or at the forced half-time break — see [matchday.md](matchday.md#tactical-pauses-and-half-time) for the UI and `POST /api/match/changes` in [api-routes.md](../technical/api-routes.md) for the endpoint.
+
+Rules, enforced identically client-side (`substitutionError()`, greying out illegal choices) and server-side (the same function, returning a `400` if a request somehow gets through anyway):
+
+- Up to **5 substitutions** per team per match (`MAX_SUBSTITUTIONS` in `shared/match-state.ts`).
+- A substituted-off player cannot return to the pitch later in the match.
+- A player who was already injured before kickoff never appears on the in-match bench either — `kickOff()` filters them out the same way `autoSelectLineup` does before the match.
+- An injury **during** the match is itself treated as a substitution waiting to happen: the injured player counts as a legal "outgoing" choice (they're already off the pitch) until someone comes on for them, or the manager chooses to play on short — see [Injury Pauses](matchday.md#injury-pauses).
+- A formation change takes effect from the next simulated minute onward — it does not retroactively change anything already played, and (like the pre-match tactic picker) does not force a lineup reshuffle to fit new slot counts; `calculateTeamStats` just applies the new tactic's modifiers to whoever is currently on the pitch.
+
+**AI-controlled teams manage their own bench** — see [match-engine.md](../technical/match-engine.md#cpu-substitutions) — but never change formation mid-match. An injury is the one thing that makes them act outside their scheduled review minutes: they replace an injured player immediately rather than waiting.
 
 ---
 

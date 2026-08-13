@@ -17,6 +17,17 @@ export interface SelectablePlayer {
   id: number
   position: string
   skillLevel: number
+  /** Matches remaining out injured. Anything above 0 makes them unselectable. */
+  injuredMatches?: number
+}
+
+/**
+ * Injury is the only thing that blocks selection. Low stamina deliberately
+ * does not — an exhausted player is pickable and simply bad, so a squad can
+ * never be locked out of naming eleven.
+ */
+export function isAvailable(player: SelectablePlayer): boolean {
+  return !(player.injuredMatches ?? 0)
 }
 
 export interface ResolvedLineup<T extends SelectablePlayer> {
@@ -103,7 +114,8 @@ export function autoSelectLineup<T extends SelectablePlayer>(
   formation?: Partial<Formation> | null,
 ): T[] {
   const slots = toFormation(formation)
-  const pools = groupSquadBySlot(squad)
+  const fit = squad.filter(isAvailable)
+  const pools = groupSquadBySlot(fit)
   const lineup: T[] = []
   const picked = new Set<number>()
 
@@ -118,11 +130,17 @@ export function autoSelectLineup<T extends SelectablePlayer>(
   // positions at random), so top up with the best players left over rather
   // than fielding fewer than eleven. A spare keeper is the last resort —
   // any outfielder is a better fit for an unfilled outfield place.
+  //
+  // Fit players are exhausted before injured ones are considered at all:
+  // fielding someone carrying a knock is bad, fielding nine is worse.
   if (lineup.length < LINEUP_SIZE) {
     const isSpareKeeper = (player: T) => (normalizePosition(player.position) === 'GK' ? 1 : 0)
     const leftovers = squad
       .filter(player => !picked.has(player.id))
-      .sort((left, right) => isSpareKeeper(left) - isSpareKeeper(right) || byRating(left, right))
+      .sort((left, right) =>
+        Number(isAvailable(right)) - Number(isAvailable(left))
+        || isSpareKeeper(left) - isSpareKeeper(right)
+        || byRating(left, right))
 
     lineup.push(...leftovers.slice(0, LINEUP_SIZE - lineup.length))
   }
@@ -162,8 +180,10 @@ function readSavedLineup<T extends SelectablePlayer>(squad: T[], savedIds?: numb
 
   for (const id of savedIds) {
     const player = squadById.get(id)
-    // Skip anything sold or duplicated since the lineup was saved.
-    if (!player || seen.has(id))
+    // Skip anything sold, duplicated, or injured since the lineup was saved.
+    // Dropping below eleven invalidates the whole saved XI and hands the
+    // team to auto-selection — the same way a sold player already did.
+    if (!player || seen.has(id) || !isAvailable(player))
       continue
 
     seen.add(id)

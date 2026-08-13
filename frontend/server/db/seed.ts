@@ -95,6 +95,7 @@ const eventTypes = [
   { name: 'corner' },
   { name: 'cross' },
   { name: 'offside' },
+  { name: 'substitution' },
 ]
 await db
   .insert(schema.eventType)

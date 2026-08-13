@@ -129,11 +129,15 @@ All pages live under `frontend/app/pages/` and are auto-registered by Nuxt's fil
 
 See [matchday.md](../functional/matchday.md) for the full functional description.
 
+**Live-match state:** a match is simulated in segments via `POST /api/match/start`, `/advance`, and `/changes` (see [api-routes.md](api-routes.md)), not one call. The score and both lineup panels are derived every tick from `applyEvents(anchorState, allEvents, currentMinute)` (`#shared/match-state`) — the same function the server uses internally — rather than hand-accumulated. See [matchday.md](../functional/matchday.md#simulation-lifecycle) for the full lifecycle.
+
 **Data fetched:**
 - `GET /api/schedule` → next unplayed fixture
 - `GET /api/team/:homeTeamId` and `GET /api/team/:awayTeamId` → both squads, plus each team's resolved `startingXi`/`bench`/`lineupAutoSelected`
 
-**Lineup panels** show the resolved starting XI and bench (not the full squad), coloured by live match status (on pitch / booked / sent off / benched). The `homeLineup`/`awayLineup` returned by `POST /api/match/simulate` are adopted after simulation, so the panels always reflect the XI the engine actually fielded. See [tactics.md](../functional/tactics.md#lineup-resolution-and-auto-select) and [matchday.md](../functional/matchday.md#lineup-panels) for the resolution and colouring rules.
+**Lineup panels** show the *live* XI and bench, not the pre-match preview — a substitution moves a player between sections in real time as it's revealed on the clock. Coloured by live match status (on pitch / booked / sent off / benched) and now carry a per-player stamina bar. See [tactics.md](../functional/tactics.md#lineup-resolution-and-auto-select) and [matchday.md](../functional/matchday.md#lineup-panels) for the resolution and colouring rules.
+
+**`MatchTacticsPanel` (`components/MatchTacticsPanel.vue`):** the player's in-match management surface — staged substitutions, a formation selector, subs-remaining counter — opened at any pause and forced open at half time. See [matchday.md](../functional/matchday.md#tactical-pauses-and-half-time).
 
 **Layout:** the three panels (Home Lineup, Match Events, Away Lineup) form a responsive grid — one row of three on desktop, two columns/two rows on mobile with Match Events spanning the bottom row. See [matchday.md](../functional/matchday.md#responsive-layout).
 

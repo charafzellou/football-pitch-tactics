@@ -4,6 +4,7 @@ Football Pitch Tactics is a project that aims to recreate the classic football m
 
 The game features :
 - A simple match simulation engine, based on random events and basic team/player attributes.
+- Live matchday playback with a half-time break, in-match substitutions, mid-match tactical changes, and player fatigue that carries between matches.
 - Football divisions from around the world, with a focus on popular leagues.
 - Basic team management features, including player transfers.
 
@@ -36,7 +37,8 @@ The game is built using :
 - **Age**: The player's age.
 - **Position**: The player's position on the field (e.g., Forward, Midfielder, Defender, Goalkeeper).
 - **Skill Level**: A numerical representation of the player's overall skill (1-100).
-- **Stamina**: A measure of the player's energy levels, affecting their performance during matches.
+- **Stamina**: A measure of the player's energy levels (0-100), affecting their performance during matches. Drains while on the pitch — faster for outfield players than for a goalkeeper — and only partially recovers between matches, so repeatedly fielding the same lineup gradually wears a squad down.
+- **Injury Status**: Whether a player is available for selection. An in-match injury takes them off immediately and rules them out for a handful of upcoming matches.
 - **Market Value**: The estimated worth of the player in the transfer market. This is the price a user should pay to acquire the player, or the price a user receives if they sell a player.
 
 ### Team Attributes

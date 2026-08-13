@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { UBadge, UButton } from '#components'
+import { UBadge, UButton, UIcon } from '#components'
 import { ref, computed, h, onMounted, watch } from 'vue'
 import { useToast } from '#imports'
 import type { LineupSlot } from '#shared/lineup'
-import { LINEUP_SIZE, LINEUP_SLOT_ORDER, normalizePosition, parseLineup } from '#shared/lineup'
+import { LINEUP_SIZE, LINEUP_SLOT_ORDER, isAvailable, normalizePosition, parseLineup } from '#shared/lineup'
 
 type LineupPosition = LineupSlot
 
@@ -16,6 +16,7 @@ interface SquadPlayer {
   stamina: number
   marketValue: number
   teamId: number
+  injuredMatches?: number
 }
 
 interface TacticOption {
@@ -209,6 +210,15 @@ function getSelectionState(player: SquadPlayer) {
     }
   }
 
+  if (!isAvailable(player)) {
+    const matches = player.injuredMatches ?? 0
+    return {
+      isSelected: false,
+      canSelect: false,
+      reason: `Injured (${matches} ${matches === 1 ? 'match' : 'matches'})`,
+    }
+  }
+
   if (!position) {
     return {
       isSelected: false,
@@ -369,41 +379,6 @@ async function confirmTacticAndSimulate() {
   }
 }
 
-async function playNextMatch() {
-  try {
-    const result = await $fetch('/api/match/simulate', { method: 'POST', body: { teamId: team.value?.id, opponentId: nextMatch.value?.awayTeamId, tactic: selectedTactic.value, lineup: selectedPlayers.value } })
-    await refreshSchedule()
-    // refresh opponent info after schedule updates
-    await refreshOpponent()
-    await refreshTeam()
-    // refresh standings so league position updates after the match
-    await refreshStandings()
-    if (
-      result &&
-      typeof (result as any).homeScore !== 'undefined' &&
-      typeof (result as any).awayScore !== 'undefined'
-    ) {
-      toast.add({
-        title: 'Match Result',
-        description: `${(result as any).homeScore} - ${(result as any).awayScore}`,
-        color: 'info',
-      })
-    } else if (result && (result as any).message) {
-      toast.add({
-        title: 'Match Simulation Error',
-        description: (result as any).message,
-        color: 'info',
-      })
-    }
-  } catch (e) {
-    toast.add({
-      title: 'Error',
-      description: 'Error simulating match.',
-      color: 'error',
-    })
-  }
-}
-
 function formatMoney(value: number) {
   return value?.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) ?? ''
 }
@@ -431,8 +406,23 @@ const lineupColumns = [
       const player = row.original as SquadPlayer
       const isSelected = selectedPlayerIds.value.has(player.id)
 
+      const injuredMatches = player.injuredMatches ?? 0
+
       return h('div', { class: 'flex items-center gap-2' }, [
-        h('span', { class: isSelected ? 'font-semibold text-primary-600' : 'font-medium' }, player.name),
+        h('span', {
+          class: injuredMatches
+            ? 'font-medium app-player-out'
+            : isSelected ? 'font-semibold text-primary-600' : 'font-medium',
+        }, player.name),
+        injuredMatches
+          ? h(UBadge, {
+              label: `Injured · ${injuredMatches}`,
+              icon: 'i-lucide-bandage',
+              color: 'error',
+              variant: 'soft',
+              size: 'sm',
+            })
+          : null,
         isSelected
           ? h(UBadge, {
               label: 'Selected',
@@ -532,7 +522,18 @@ const lineupColumns = [
         class: '-mx-2.5',
         onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
       })
-    }
+    },
+    // Fatigue carries between matches now, so a tired player is a real
+    // squad-rotation decision, not just a cosmetic number.
+    cell: ({ row }: { row: any }) => {
+      const stamina = row.original.stamina as number
+      const isTired = stamina < 60
+
+      return h('span', { class: `flex items-center gap-1.5 ${isTired ? 'text-amber-400' : ''}` }, [
+        isTired ? h(UIcon, { name: 'i-lucide-battery-warning', class: 'size-3.5' }) : null,
+        `${stamina}%`,
+      ])
+    },
   },
   {
     accessorKey: 'marketValue',
@@ -669,7 +670,7 @@ onMounted(async () => {
               </p>
             </div>
             <span
-              class="app-status-pill"
+              class="app-status-pill p-2"
               :class="lineupIsComplete ? 'app-status-pill--success' : 'app-status-pill--warning'"
             >
               {{ lineupIsComplete ? 'Lineup ready' : 'Incomplete lineup' }}

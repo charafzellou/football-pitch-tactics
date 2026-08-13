@@ -16,80 +16,122 @@ Before the player can start a matchday:
 
 ## Page States
 
-The matchday page has five distinct states, controlled by `hasStarted`, `playing`, `isFinished`, and `loadingMatch`:
+The matchday page has eight states, controlled by `hasStarted`, `playing`, `isFinished`, `isHalfTime`, `injuredPlayerId`, and `loadingMatch`:
 
-| State | `hasStarted` | `playing` | `isFinished` | `loadingMatch` | UI shown |
-|---|---|---|---|---|---|
-| Pre-match | `false` | `false` | `false` | `false` | **Start Match** button |
-| Loading | `false` | `false` | `false` | `true` | Spinner on Start button |
-| Playing | `true` | `true` | `false` | `false` | **Pause** button |
-| Paused | `true` | `false` | `false` | `false` | **Resume** button |
-| Finished | `true` | `false` | `true` | `false` | **End Match** button |
+| State | `hasStarted` | `playing` | `isHalfTime` | `injuredPlayerId` | `isFinished` | `loadingMatch` | UI shown |
+|---|---|---|---|---|---|---|---|
+| Pre-match | `false` | `false` | `false` | `null` | `false` | `false` | **Start Match** button |
+| Loading | `false` | `false` | `false` | `null` | `false` | `true` | Spinner on Start button |
+| Playing | `true` | `true` | `false` | `null` | `false` | `false` | **Pause** button |
+| Paused (tactical) | `true` | `false` | `false` | `null` | `false` | `false` | **Resume** button + `MatchTacticsPanel` |
+| Half time | `true` | `false` | `true` | — | `false` | `false` | `MatchTacticsPanel` (half-time framing), no Resume button — continuing is the panel's job |
+| Injury pause | `true` | `false` | `false` | *player id* | `false` | `false` | `MatchTacticsPanel` (injury framing), no Resume button — see [Injury Pauses](#injury-pauses) |
+| Loading next segment | `true` | `false` | — | — | `false` | `true` | Spinner |
+| Finished | `true` | `false` | `false` | `null` | `true` | `false` | **End Match** button |
+| Result not saved | `true` | `false` | `false` | `null` | `false` | `false` | **Retry saving result** button (`finishFailed`) — the clock reached 90 but `POST /api/match/finish` failed |
+
+Half time takes priority if both land on the same tick: the clock only checks for an own-team injury when `isHalfTime` is `false`, since the half-time break already covers the interruption.
 
 ---
 
 ## Simulation Lifecycle
+
+The match is no longer resolved in one shot. It's simulated in **segments** — 1–45, then 46–90 — so a pause between segments can genuinely change what happens in the next one. See [match-engine.md](../technical/match-engine.md#entry-points-kickoff-and-simulatesegment) for the engine side of this.
 
 ### 1. Pre-match setup (on mount)
 ```
 GET /api/schedule  →  nextMatch (first unplayed fixture)
 GET /api/team/:homeTeamId  →  homeTeam (name, full squad, startingXi, bench, lineupAutoSelected)
 GET /api/team/:awayTeamId  →  awayTeam (name, full squad, startingXi, bench, lineupAutoSelected)
+GET /api/tactics  →  tacticsList (for the tactics panel's formation selector)
+GET /api/game/state  →  used to work out which side, if either, the player manages
 ```
 
-`startingXi`/`bench` are already resolved server-side (saved lineup if valid, otherwise auto-selected) — the page does not re-derive a lineup itself. See [tactics.md](tactics.md#lineup-resolution-and-auto-select) for the resolution rules.
+`startingXi`/`bench` are the pre-kickoff preview, already resolved server-side. See [tactics.md](tactics.md#lineup-resolution-and-auto-select) for the resolution rules. Once a match is under way, the lineup panels switch to deriving who's actually on the pitch from live match state instead — see [Lineup Panels](#lineup-panels) below.
 
-### 2. Start Match (user clicks button)
+### 2. Start Match (user clicks button — also the Resume-after-refresh button)
 
 ```
-POST /api/match/simulate { matchId: nextMatch.id }
+POST /api/match/start { matchId: nextMatch.id }
 ```
 
-The server:
-1. Runs `simulateMatch()` — the entire 90-minute simulation completes in microseconds.
-2. Persists the result to `matches` and all events (each with a `playerId`) to `match_events`.
-3. Returns: `{ homeScore, awayScore, events: MatchEvent[], homeLineup: number[], awayLineup: number[] }`.
+This does one of two things:
+- **Fresh kickoff:** the server resolves both XIs, seeds a `MatchState` at minute 0 (stamina recovered from each player's last match — see [Fatigue and Stamina](../technical/match-engine.md#fatigue-and-stamina)), persists it, and returns `{ matchId, state, events: [] }`. The client then immediately calls `POST /api/match/advance` to simulate the first half.
+- **Resuming an in-progress match** (the same button, clicked again after a refresh mid-match): the server returns the persisted `state` plus every event recorded so far. The client derives the furthest minute it actually has events for and jumps straight there — this is what makes a refresh at half-time (or mid-pause) safe: nothing is lost, and nothing has to be watched twice.
 
-All 90 minutes of events are now in memory on the client. `homeLineup`/`awayLineup` are the player ids the engine actually fielded — the client adopts them (`homeStartingXi`/`awayStartingXi`), replacing the pre-match preview, so the lineup panels are guaranteed to reflect the XI that was simulated even in the rare case a lineup changed between page load and kickoff.
+### 3. Segment fetch (`fetchNextSegment`)
 
-### 3. Playback loop
-
-Once the simulation response arrives:
 ```
-hasStarted = true
-playing    = true
+POST /api/match/advance { matchId, fromMinute: currentMinute }
+```
+
+The server rewinds/fast-forwards its persisted state to `fromMinute` (discarding anything simulated past it — this is the step that makes a pause-and-substitute actually change the outcome), simulates onward to the next break (45 or 90), and returns the new events. The client appends them to its event list and starts (or restarts) the clock.
+
+### 4. Playback loop
+
+```
+playing = true
 ```
 
 A `setInterval` fires every **1000 ms** (1 second = 1 in-game minute), calling `tickOnce()`.
 
-### 4. `tickOnce()` — the heart of the playback
+### 5. `tickOnce()` — the heart of the playback
 
 On each tick:
-1. Check if `currentMinute >= 90` → stop interval, `isFinished = true`, return.
-2. Increment `currentMinute` by 1.
-3. While the next event in `events[playbackIndex]` has `minute <= currentMinute`:
-   - Resolve the team name from `homeTeam.id` or `awayTeam.id`.
-   - Resolve the player name from `team.squad.find(p => p.id === event.playerId)`. Every generated event has a `playerId` now (see [match-engine.md](../technical/match-engine.md)), so this reliably finds a name — it previously could not for card events, which only carried a `teamId`.
-   - Prepend a `PlaybackEntry` to `eventFeed` (`unshift` → newest at top).
-   - If `eventType === 'goal'`, increment the appropriate score.
-   - Advance `playbackIndex`.
+1. If `currentMinute` has reached the end of what's been fetched (`segmentFetchedThrough` — 45, or 90): stop the interval, `playing = false`, and either set `isFinished = true` (at 90) or `isHalfTime = true` (at 45).
+2. Otherwise increment `currentMinute` by 1 and reveal any events up to that minute into `eventFeed` (prepended, newest first). If one of those events is an `injury` belonging to the player's own team — and it isn't already half time — `revealUpTo` reports the injured player's id back to `tickOnce`, which sets `injuredPlayerId` and stops the interval, exactly as if the manager had paused.
 
-This means multiple events at the same minute are all surfaced in a single tick.
+The score and every lineup panel are **derived**, not accumulated by hand: `liveState = applyEvents(anchorState, allEvents, currentMinute)` (from `shared/match-state.ts`) replays every event revealed so far onto the last known anchor, giving the score, who's on the pitch, who's booked, and current stamina — the same function the engine and the API use internally, so the UI can never derive a different answer than the server did.
 
-`playbackIndex` also drives the lineup panels' player colouring (see [Player Status Colouring](#player-status-colouring) below): `revealedEvents` is `events.slice(0, playbackIndex)`, so a card only colours a player once its minute has actually played out on the clock — not the instant the simulation result arrives.
+### 6. Half time
 
-### 5. Pause / Resume
+At minute 45 the clock stops itself — no player action needed — and `MatchTacticsPanel` opens automatically, framed as "Half Time" rather than a generic pause. See [Tactical Pauses](#tactical-pauses-and-half-time) below.
 
-**Pause:** Clears the interval. `playing = false`. The clock freezes.
+### 7. Pause / Resume (any other minute)
 
-**Resume:** Restarts the interval from `currentMinute`. No state is lost.
+**Pause:** Clears the interval, `playing = false`. `MatchTacticsPanel` becomes available (not forced open the way half-time is, but reachable) since the manager might want to react to what just happened.
 
-### 6. Full time
+**Resume:** If nothing was changed and the current segment already covers minutes up to the next break, this just restarts the interval. If the manager made a substitution or tactic change, or the segment boundary was reached, this fetches a new segment first (step 3) — the events for the remainder of the segment are freshly simulated, reflecting the change.
 
-When `currentMinute` reaches 90:
-- Clock stops.
-- `isFinished = true`.
-- **End Match** button appears (navigates to `/game`).
+### 8. Full time
+
+When `currentMinute` reaches 90 (`tickOnce` detects it):
+- Clock stops and the client calls `POST /api/match/finish`, which is what commits `homeScore`/`awayScore`/`played = 1`, writes each player's recovered stamina back to `players.stamina`, updates injury countdowns, and advances `game.currentDate`.
+- `isFinished = true` only once that call succeeds, and the **End Match** button appears (navigates to `/game`).
+- If it fails, the result is *not* silently dropped: a toast explains, and a **Retry saving result** button appears in place of End Match.
+
+> **Nothing is committed until the clock gets here.** The second half is simulated in one go the moment the manager leaves half time, ~45 seconds of playback before minute 90 arrives — and a pause anywhere in that stretch rewinds and re-simulates the rest, so the "result" is provisional the whole time. Finalising at simulation time (as an earlier version did, inside `advance`) nulled `matches.state` for the entire second half, which made every mid-second-half substitution fail with `400 Match has not started`.
+
+---
+
+## Tactical Pauses and Half Time
+
+`MatchTacticsPanel.vue` is the manager's in-match surface — pitch/bench for the player's own team, a formation selector, and staged substitutions. It never appears for the opponent's team; the CPU manages its own bench automatically (see [CPU Substitutions](../technical/match-engine.md#cpu-substitutions)).
+
+**Staging a substitution:** tap a pitch player, then a bench player. The pair is added to a staged list (with a remove button) rather than applied immediately, so several swaps can be queued before committing. `MAX_SUBSTITUTIONS = 5` per side per match; the panel shows subs remaining and disables bench players once the cap is staged.
+
+**Confirming:** `POST /api/match/changes { matchId, atMinute, substitutions, tactic }` validates each swap server-side (same rule the panel uses to grey out illegal choices, so a request that got this far should never actually fail), applies them, and records a `substitution` event per swap — visible in the feed with both player names moments later. The client then always fetches the next segment (step 3), whether or not anything was actually staged, since reaching this point means the previously-fetched segment is no longer trustworthy (truncated by the pause) or was never fetched (the half-time boundary).
+
+Swaps are validated **in sequence**, each against the state left by the ones before it, so chaining is legal: staging "A off, B on" and then "B off, C on" in the same batch works, because B really is on the pitch by the time the second swap is checked.
+
+If the request fails, the clock stays stopped and the panel stays up with an error toast rather than resuming into a match that ignored the manager. The staged list does not survive that re-render, so the changes have to be set again.
+
+**"Continue without changes":** skips straight to fetching the next segment.
+
+---
+
+## Injury Pauses
+
+When one of the player's own players goes off injured, the clock stops on its own — the same as half time, except the trigger is an event in the feed rather than a fixed minute. The `Virtual Clock` header shows a `{Player} injured` badge in place of the LIVE indicator while this is open.
+
+`MatchTacticsPanel` opens already primed for the decision: the injured player is pre-selected as the outgoing half of a swap (they're already off the pitch — the engine removed them the instant the event was generated, and `calculateTeamStats` is already treating the side as a player down), so the manager only has to tap who comes on. The panel offers two actions instead of the usual pair:
+
+- **Confirm replacement** — enabled once a bench player is tapped. Goes through the exact same `POST /api/match/changes` path as any other substitution.
+- **Play on with ten** — resumes the clock with no request at all. The engine already simulated the remainder of the current segment with the injured player off `onPitch`, so the buffered events are already consistent with playing short; there's nothing to re-fetch.
+
+If `MAX_SUBSTITUTIONS` has already been used up, "Confirm replacement" doesn't appear and the panel explains that no substitutions remain — "Play on with ten" is the only option.
+
+An injured CPU player never reaches the human manager at all: the opponent's side reacts on its own the following minute (see [CPU Substitutions](../technical/match-engine.md#cpu-substitutions)).
 
 ---
 
@@ -141,6 +183,7 @@ A match generates ~45 events (scaled down from real-world frequencies — see [m
 | Goals | `goal` |
 | Shots | `goal`, `shot_on_target`, `shot` |
 | Cards | `yellow`, `red` |
+| Subs | `substitution` |
 | Fouls | `foul`, `offside`, `injury` |
 
 Chips are styled with `.app-filter-chip` / `.app-filter-chip--active`. Because Goals is a subset of Shots, the counts overlap by design. When a filter matches nothing but the match has produced events, the panel reads "No events of this type yet." rather than the empty-match "No events yet."
@@ -184,13 +227,14 @@ While a match is in progress (started but not finished), the player **cannot nav
 
 ## Lineup Panels
 
-The Home and Away Lineup panels show the **starting XI**, not the full squad — resolved server-side by `GET /api/team/:id` (see [tactics.md](tactics.md#lineup-resolution-and-auto-select)). Each panel has two sections:
+Before kickoff, the Home and Away Lineup panels show the **pre-match preview XI** — resolved server-side by `GET /api/team/:id` (see [tactics.md](tactics.md#lineup-resolution-and-auto-select)). Once a match is under way, they switch to the **live** XI — `liveState.home.onPitch` / `liveState.away.onPitch` — so a substitution moves a player between the Starters and Bench sections in real time, at the minute it's revealed on the clock, not the pre-match lineup. Each panel has two sections:
 
-**Starters** (`startingXi`, in `GK → DF → MF → FW` order):
+**Starters** (live `onPitch`, sorted `GK → DF → MF → FW`):
 - A **position badge** (color-coded: GK=sky, DF=emerald, MF=amber, FW=rose).
 - Player name, coloured by their current match status (see below).
+- A stamina bar (`.app-stat-bar-track`/`.app-stat-bar-fill`), reflecting fatigue as of the current minute — see [Fatigue and Stamina](../technical/match-engine.md#fatigue-and-stamina).
 
-**Bench** (everything else in the squad, same slot order), under a small "Bench" divider. Bench players use a slightly dimmed position badge and start out in the same muted grey as an unused player.
+**Bench** (everyone else in the squad, same slot order), under a small "Bench" divider. This now includes anyone subbed off during the match, alongside players who never started.
 
 If the team's lineup was auto-selected (no valid saved XI — true for every AI club, and true for the player's own team until they save one from the Dashboard), the panel header shows a small **"Auto"** badge.
 
@@ -198,14 +242,14 @@ If the team's lineup was auto-selected (no valid saved XI — true for every AI 
 
 ## Player Status Colouring
 
-Every name in a lineup panel is coloured based on events that have actually played out on the clock so far (`revealedEvents`, driven by `playbackIndex` — see [`tickOnce()`](#4-tickonce--the-heart-of-the-playback) above), not the full pre-computed event list:
+Every name in a lineup panel is coloured from the same `liveState` the score is derived from — the state at the currently-revealed minute, not the full pre-computed event list:
 
 | State | Class | Appearance | Condition |
 |---|---|---|---|
-| On the pitch | `.app-player-on-pitch` | Normal soft text colour | Default state for a starter with no card and not substituted |
-| Booked | `.app-player-booked` | Amber text | Player has a revealed `yellow` event and no `red` |
-| Sent off | `.app-player-sent-off` | Red text, strikethrough | Player has a revealed `red` event |
-| Not on the pitch | `.app-player-out` | Muted grey | Player is on the bench, or was substituted off (a revealed `substitution` event) |
+| On the pitch | `.app-player-on-pitch` | Normal soft text colour | In `liveState[side].onPitch`, no card |
+| Booked | `.app-player-booked` | Amber text | In `liveState[side].booked` |
+| Sent off | `.app-player-sent-off` | Red text, strikethrough | In `liveState[side].sentOff` |
+| Not on the pitch | `.app-player-out` | Muted grey | Not in `onPitch` — on the bench, or subbed off |
 
 A red card always wins over a yellow if both are somehow present. These four classes are defined in `app/assets/css/main.css` (`--app-player-booked`, `--app-player-sent-off`, `--app-player-out` CSS variables) and are shared by both lineup panels.
 
@@ -233,13 +277,21 @@ Achieved with a `grid-cols-2 lg:grid-cols-3` grid, `order` utilities placing Hom
 
 | Issue | Notes |
 |---|---|
-| All events are pre-computed before playback starts | The "live" feel is purely cosmetic — the result is known the instant the player clicks Start. |
-| Pause does not affect server state | The server has already returned all events at simulation start. |
-| No half-time indication | The clock just counts to 90 continuously. |
-| At most one event per minute | A deliberate constraint of the engine, not a display limit — see [match-engine.md](../technical/match-engine.md#one-draw-per-minute). Real matches can cluster several events into one minute. |
-| No stamina influence on match performance, no home advantage | See [match-engine.md](../technical/match-engine.md#known-limitations--history) for the full list of engine-level gaps. |
+| Each segment (a half) is still simulated in one server call, not truly minute-by-minute | A pause mid-segment does change the *next* segment, but nothing the manager does between minute 12 and 13, say, can influence what already happened at minute 12 within the same segment — only what comes after the pause. |
+| At most one *drawn* event per minute, but a substitution can share a minute with one | See [match-engine.md](../technical/match-engine.md#event-object-shape) — `match_events.minute` is no longer a unique key within a match. |
+| No home advantage | Home/away teams have identical stats bases. |
+| Resuming after a refresh mid-pause (not mid-half-time) replays the already-known segment quickly rather than re-pausing exactly where the manager left off | The server only durably remembers "paused at minute X" once an explicit sync happens (a substitution, or reaching a half/full-time boundary) — a bare pause with no changes isn't itself a sync point. A refresh in that narrow window resumes at the furthest minute with recorded events, not necessarily the exact minute the clock showed. |
+| Opponent tactics never change mid-match, only substitutions | The CPU reviews its bench (see [CPU Substitutions](../technical/match-engine.md#cpu-substitutions)) but never changes formation. |
+| An injured player looks identical to a benched or already-substituted one in the lineup panels | Both fall under `.app-player-out` (see [Player Status Colouring](#player-status-colouring)) — there's no separate colour for "off through injury" versus "never started"/"subbed off". The injury pause itself (the header badge, the tactics panel) is the only place it's called out explicitly. |
 
 **Previously listed here, now fixed:**
-- ~~Player lineup on screen ≠ actual simulated lineup~~ — the page now shows the resolved starting XI (saved or auto-selected), matching what the engine actually simulates.
+- ~~All events are pre-computed before playback starts; pause does not affect server state~~ — the match is simulated in segments, and a pause with a substitution or tactic change genuinely alters the next segment. See [Simulation Lifecycle](#simulation-lifecycle).
+- ~~No half-time indication~~ — the clock stops itself at 45' and opens the tactics panel, framed as Half Time.
+- ~~Player lineup on screen ≠ actual simulated lineup~~ — the lineup panels now derive from live match state, updating in real time as substitutions happen.
 - ~~`yellow`/`red` event type key mismatch~~ — a single `normalizeEventType()` helper is now the only place spelling variants are handled.
 - ~~Card events had no player attached, only a team~~ — every event the engine generates now names a specific player (see [match-engine.md](../technical/match-engine.md#player-selection-by-position)).
+- ~~No stamina influence on match performance~~ — see [Fatigue and Stamina](../technical/match-engine.md#fatigue-and-stamina).
+- ~~Any pause in the second half failed with `400 Match has not started`~~ — the result was being committed (and `matches.state` nulled) as soon as the second half was *simulated*, ~45 seconds before it was watched. Finalisation moved to `POST /api/match/finish`, called when the clock actually reaches 90.
+- ~~A batch of substitutions was validated against a frozen snapshot~~ — chaining ("A off, B on" then "B off, C on") was wrongly rejected, and a batch could exceed `MAX_SUBSTITUTIONS`. Validation now folds each swap in before checking the next.
+- ~~A failed match request left the page frozen with the spinner up and no explanation~~ — every match call now reports errors as a toast and restores the controls.
+- ~~The tactics panel stayed painted over the full-time screen~~ — it is `v-if`d on the same condition as its `open` prop, so it unmounts rather than lingering with stale staged substitutions.

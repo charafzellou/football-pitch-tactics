@@ -57,7 +57,10 @@ export const players = sqliteTable('players', {
   age: integer('age').notNull(),
   position: text('position').notNull(),
   skillLevel: integer('skill_level').notNull(),
+  /** Stamina 0-100, meaning "what this player starts their next match with". */
   stamina: integer('stamina').notNull(),
+  /** Matches remaining before this player is available for selection again. 0 = fit. */
+  injuredMatches: integer('injured_matches').notNull().default(0),
   marketValue: integer('market_value').notNull(),
   teamId: integer('team_id')
     .notNull()
@@ -114,6 +117,12 @@ export const matches = sqliteTable('matches', {
   played: integer('played').notNull().default(0),
   season: integer('season').notNull().references(() => season.id),
   matchDate: integer('match_date', { mode: 'timestamp' }).notNull(),
+  /**
+   * Live match state as JSON (see `shared/match-state.ts`'s `MatchState`)
+   * while a match is paused mid-way through. Null when the match hasn't
+   * started yet, or has already finished.
+   */
+  state: text('state'),
 })
 
 /**
@@ -128,6 +137,8 @@ export const matchEvents = sqliteTable('match_events', {
   minute: integer('minute').notNull(),
   eventType: integer('event_type').notNull().references(() => eventType.id),
   playerId: integer('player_id').references(() => players.id),
+  /** The player going off, for `substitution` events. `playerId` is the one coming on. */
+  relatedPlayerId: integer('related_player_id').references(() => players.id),
   teamId: integer('team_id')
     .notNull()
     .references(() => teams.id),

@@ -1,6 +1,16 @@
 {
   // https://nuxt.com/docs/guide/concepts/typescript
   "files": [],
+  // Lets standalone scripts (e.g. scripts/calibrate-match-engine.ts, run
+  // directly with `bun run` outside of Nuxt/Nitro) resolve the same
+  // `#shared/*` alias the app uses. Nuxt itself resolves this via the
+  // generated .nuxt/tsconfig.*.json files below, not this block.
+  "compilerOptions": {
+    "paths": {
+      "#shared": ["./shared/index.ts"],
+      "#shared/*": ["./shared/*"]
+    }
+  },
   "references": [
     {
       "path": "./.nuxt/tsconfig.app.json"
