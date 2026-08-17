@@ -27,6 +27,7 @@
     "@nuxt/eslint-config": "^1.17.0",
     "@nuxt/ui": "^3.3.7",
     "@pinia/nuxt": "^0.11.3",
+    "@types/canvas-confetti": "^1.9.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.5",
@@ -38,5 +39,11 @@
     "typescript-eslint": "^8.67.0",
     "vue-router": "^4.6.4",
     "vue-tsc": "^3.3.9"
+  },
+  "dependencies": {
+    "@vueuse/core": "^14.4.0",
+    "@vueuse/nuxt": "^14.4.0",
+    "canvas-confetti": "^1.9.4",
+    "colord": "^2.9.3"
   }
 }

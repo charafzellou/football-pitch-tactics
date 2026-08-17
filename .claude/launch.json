@@ -2,14 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
+      "name": "football-pitch-tactics",
       "runtimeExecutable": "bun",
-      "runtimeArgs": [
-        "run",
-        "--cwd",
-        "frontend/",
-        "dev"
-      ],
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
       "port": 8080
     }
   ]

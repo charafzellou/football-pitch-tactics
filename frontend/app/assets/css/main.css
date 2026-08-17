@@ -1,26 +1,67 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* ---------------------------------------------------------------------------
+   Theme primitives
+   ---------------------------------------------------------------------------
+   The two ramps below are the ONLY colour inputs to the whole app. They are
+   declared here as the Premium theme's defaults, and overwritten at runtime as
+   inline styles on <html> by `utils/themes.ts` — inline styles outrank these,
+   so a theme switch needs no rebuild and no class juggling.
+
+   `--color-brand-*`  → Nuxt UI's `primary`  (app.config.ts: ui.colors.primary)
+   `--color-shell-*`  → Nuxt UI's `neutral`  (app.config.ts: ui.colors.neutral)
+
+   Everything under `@layer base :root` is DERIVED from them with color-mix(),
+   which is what keeps a theme change coherent: edit one seed and the surfaces,
+   borders and text tones all move with it instead of leaving orphaned greys.
+--------------------------------------------------------------------------- */
+
 @theme static {
-  --font-sans: 'Public Sans', sans-serif;
+  --font-sans: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
 
-  --color-green-50: #effdf5;
-  --color-green-100: #d9fbe8;
-  --color-green-200: #b3f5d1;
-  --color-green-300: #75edae;
-  --color-green-400: #00dc82;
-  --color-green-500: #00c16a;
-  --color-green-600: #00a155;
-  --color-green-700: #007f45;
-  --color-green-800: #016538;
-  --color-green-900: #0a5331;
-  --color-green-950: #052e16;
+  /* Brand ramp — hsl(153 100%) emerald, damped at the extremes. */
+  --color-brand-50: hsl(153 70% 96%);
+  --color-brand-100: hsl(153 100% 91%);
+  --color-brand-200: hsl(153 100% 82%);
+  --color-brand-300: hsl(153 100% 71%);
+  --color-brand-400: hsl(153 100% 60%);
+  --color-brand-500: hsl(153 100% 50%);
+  --color-brand-600: hsl(153 100% 42%);
+  --color-brand-700: hsl(153 100% 34%);
+  --color-brand-800: hsl(153 100% 27%);
+  --color-brand-900: hsl(153 100% 21%);
+  --color-brand-950: hsl(153 82% 13%);
 
-  /* Animation tokens — register as animate-* Tailwind utilities */
+  /* Shell ramp — hsl(216 41%) navy-tinted neutral. */
+  --color-shell-50: hsl(216 29% 96%);
+  --color-shell-100: hsl(216 41% 91%);
+  --color-shell-200: hsl(216 41% 82%);
+  --color-shell-300: hsl(216 41% 71%);
+  --color-shell-400: hsl(216 41% 60%);
+  --color-shell-500: hsl(216 41% 50%);
+  --color-shell-600: hsl(216 41% 42%);
+  --color-shell-700: hsl(216 41% 34%);
+  --color-shell-800: hsl(216 41% 27%);
+  --color-shell-900: hsl(216 41% 21%);
+  --color-shell-950: hsl(216 34% 13%);
+
+  /* Motion tokens — each becomes an `animate-*` utility. */
   --animate-fade-in-up: fadeInUp 0.5s ease-out both;
   --animate-slide-in-left: slideInLeft 0.35s ease-out both;
+  --animate-slide-in-right: slideInRight 0.35s ease-out both;
   --animate-live-ping: livePing 1.4s ease-in-out infinite;
-  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-pop-in: popIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-scale-in: scaleIn 0.22s ease-out both;
+  --animate-score-flip: scoreFlip 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-glow-pulse: glowPulse 2.4s ease-in-out infinite;
+  --animate-shake: shake 0.4s ease-in-out;
+  --animate-flash: flash 1.5s ease-out both;
+  --animate-sweep: sweep 2.6s ease-in-out infinite;
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-heartbeat: heartbeat 1.2s ease-in-out infinite;
+  --animate-ticker: ticker 0.8s ease-out both;
 }
 
 @keyframes fadeInUp {
@@ -30,6 +71,11 @@
 
 @keyframes slideInLeft {
   from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
@@ -43,59 +89,175 @@
   to { background-position: 200% center; }
 }
 
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.85) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes scoreFlip {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-38%) scale(1.28); }
+  70% { transform: translateY(6%) scale(0.96); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+@keyframes flash {
+  0% { opacity: 0; transform: scale(1.06); }
+  12% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes sweep {
+  0% { transform: translateX(-120%); }
+  55%, 100% { transform: translateX(240%); }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(28px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.16); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.12); }
+  56% { transform: scale(1); }
+}
+
+@keyframes ticker {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------------------------------------------------------------------------
+   Derived tokens
+--------------------------------------------------------------------------- */
+
 @layer base {
   :root {
-    --app-shell-from: #07121a;
-    --app-shell-via: #0b1722;
-    --app-shell-to: #132432;
-    --app-surface: rgba(15, 23, 35, 0.94);
-    --app-surface-subtle: rgba(20, 32, 45, 0.94);
-    --app-surface-muted: rgba(28, 41, 56, 0.96);
-    --app-surface-border: rgba(148, 163, 184, 0.18);
-    --app-topbar: rgba(4, 10, 16, 0.97);
-    --app-topbar-panel: rgba(8, 18, 27, 0.99);
-    --app-topbar-border: rgba(148, 163, 184, 0.14);
-    --app-topbar-text: #f8fafc;
-    --app-topbar-muted: rgba(167, 243, 208, 0.8);
-    --app-topbar-link: rgba(226, 232, 240, 0.9);
-    --app-topbar-hover: rgba(255, 255, 255, 0.12);
-    --app-text: #f8fafc;
-    --app-text-soft: #dbe7f4;
-    --app-text-muted: #94a3b8;
-    --app-text-kicker: #9fb3c8;
+    /* Seeds written directly by the theme engine; defaults match `premium`. */
+    --app-seed-pitch: #0f8f63;
+    --app-seed-gold: #d4af37;
+    --app-pos-gk: #38bdf8;
+    --app-pos-df: #34d399;
+    --app-pos-mf: #fbbf24;
+    --app-pos-fw: #fb7185;
+
+    /* Chrome — overwritten per theme. */
+    --app-border-width: 1px;
+    --app-noise-opacity: 0.035;
+    --app-glass-blur: 16px;
+    --app-shadow-strength: 0.7;
+    --app-kicker-tracking: 0.2em;
+    --app-pitch-stripe: 0.05;
+
+    /* Shell backdrop. */
+    --app-shell-from: color-mix(in srgb, var(--color-shell-950), black 42%);
+    --app-shell-via: var(--color-shell-950);
+    --app-shell-to: color-mix(in srgb, var(--color-shell-900), black 34%);
+
+    /* Surfaces. */
+    --app-surface: color-mix(in srgb, color-mix(in srgb, var(--color-shell-950), white 4%) 92%, transparent);
+    --app-surface-subtle: color-mix(in srgb, color-mix(in srgb, var(--color-shell-900), black 42%) 92%, transparent);
+    --app-surface-muted: color-mix(in srgb, color-mix(in srgb, var(--color-shell-900), black 26%) 96%, transparent);
+    --app-surface-raised: color-mix(in srgb, var(--color-shell-900), black 12%);
+    --app-surface-border: color-mix(in srgb, var(--color-shell-400) 22%, transparent);
+    --app-surface-border-strong: color-mix(in srgb, var(--color-shell-300) 34%, transparent);
+
+    /* Topbar. */
+    --app-topbar: color-mix(in srgb, color-mix(in srgb, var(--color-shell-950), black 40%) 96%, transparent);
+    --app-topbar-panel: color-mix(in srgb, color-mix(in srgb, var(--color-shell-950), black 24%) 99%, transparent);
+    --app-topbar-border: color-mix(in srgb, var(--color-shell-400) 16%, transparent);
+    --app-topbar-text: var(--color-shell-50);
+    --app-topbar-muted: color-mix(in srgb, var(--color-brand-200) 85%, transparent);
+    --app-topbar-link: color-mix(in srgb, var(--color-shell-100) 90%, transparent);
+    --app-topbar-hover: color-mix(in srgb, var(--color-shell-50) 12%, transparent);
+
+    /* Text. */
+    --app-text: var(--color-shell-50);
+    --app-text-soft: var(--color-shell-100);
+    --app-text-muted: var(--color-shell-400);
+    --app-text-kicker: var(--color-shell-300);
+
+    /* Accents. */
+    --app-accent: var(--color-brand-400);
+    --app-accent-strong: var(--color-brand-300);
+    --app-accent-soft: color-mix(in srgb, var(--color-brand-400) 16%, transparent);
+    --app-gold: var(--app-seed-gold);
+    --app-gold-soft: color-mix(in srgb, var(--app-seed-gold) 16%, transparent);
+
+    /* Ambient glows behind the page content. */
+    --app-glow-1: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
+    --app-glow-2: color-mix(in srgb, var(--color-shell-500) 18%, transparent);
+
+    /* Player status. */
     --app-player-booked: #fbbf24;
     --app-player-sent-off: #f87171;
-    --app-player-out: #64748b;
-    --app-badge-success-bg: rgba(16, 185, 129, 0.18);
-    --app-badge-success-text: #a7f3d0;
+    --app-player-injured: #fb7185;
+    --app-player-out: var(--color-shell-500);
+
+    /* Badges. */
+    --app-badge-success-bg: color-mix(in srgb, var(--color-brand-500) 18%, transparent);
+    --app-badge-success-text: var(--color-brand-200);
     --app-badge-warning-bg: rgba(245, 158, 11, 0.2);
     --app-badge-warning-text: #fde68a;
-    --app-badge-selection-bg: rgba(34, 197, 94, 0.18);
-    --app-badge-selection-text: #bbf7d0;
-    --app-pitch-from: rgba(52, 211, 153, 0.12);
-    --app-pitch-via: #0d6048;
-    --app-pitch-to: #08131d;
+    --app-badge-danger-bg: rgba(239, 68, 68, 0.16);
+    --app-badge-danger-text: #fecaca;
+    --app-badge-selection-bg: color-mix(in srgb, var(--color-brand-400) 20%, transparent);
+    --app-badge-selection-text: var(--color-brand-200);
+
+    /* Pitch. */
+    --app-pitch-light: color-mix(in srgb, var(--app-seed-pitch), white 42%);
+    --app-pitch-from: color-mix(in srgb, var(--app-pitch-light) 24%, transparent);
+    --app-pitch-via: var(--app-seed-pitch);
+    --app-pitch-to: color-mix(in srgb, var(--color-shell-950), black 26%);
+    --app-pitch-line: rgba(255, 255, 255, 0.22);
     --app-pitch-card: rgba(255, 255, 255, 0.12);
-    --app-pitch-card-hover: rgba(255, 255, 255, 0.18);
-    --app-pitch-slot: rgba(8, 15, 23, 0.36);
+    --app-pitch-card-hover: rgba(255, 255, 255, 0.2);
+    --app-pitch-slot: rgba(8, 15, 23, 0.34);
     --app-pitch-text: #f8fafc;
-    --app-pitch-muted: rgba(220, 252, 231, 0.84);
+    --app-pitch-muted: color-mix(in srgb, var(--app-pitch-light) 88%, white);
     --app-pitch-faint: rgba(226, 232, 240, 0.66);
-    --ui-bg: #0f1722;
-    --ui-bg-muted: #172231;
-    --ui-bg-elevated: #1d2b3c;
-    --ui-bg-accented: #243547;
-    --ui-bg-inverted: #f8fafc;
-    --ui-text: #e5edf7;
-    --ui-text-dimmed: #8ba0b5;
-    --ui-text-muted: #9bb1c7;
-    --ui-text-toned: #bfd0e0;
-    --ui-text-highlighted: #f8fafc;
-    --ui-text-inverted: #08111b;
-    --ui-border: rgba(148, 163, 184, 0.2);
-    --ui-border-muted: rgba(148, 163, 184, 0.12);
-    --ui-border-accented: rgba(148, 163, 184, 0.3);
-    --ui-border-inverted: #08111b;
+
+    /* Nuxt UI semantic tokens.
+       Nuxt UI's own `.dark` block maps these to neutral-900/800/700, which is
+       too light for this app's depth. Re-pointed at the darker end of the same
+       ramp so they stay theme-driven rather than hardcoded. */
+    --ui-bg: var(--color-shell-950);
+    --ui-bg-muted: color-mix(in srgb, var(--color-shell-900), black 40%);
+    --ui-bg-elevated: color-mix(in srgb, var(--color-shell-900), black 28%);
+    --ui-bg-accented: color-mix(in srgb, var(--color-shell-800), black 22%);
+    --ui-bg-inverted: var(--color-shell-50);
+    --ui-text: var(--color-shell-100);
+    --ui-text-dimmed: var(--color-shell-500);
+    --ui-text-muted: var(--color-shell-400);
+    --ui-text-toned: var(--color-shell-300);
+    --ui-text-highlighted: var(--color-shell-50);
+    --ui-text-inverted: var(--color-shell-950);
+    --ui-border: color-mix(in srgb, var(--color-shell-400) 22%, transparent);
+    --ui-border-muted: color-mix(in srgb, var(--color-shell-400) 13%, transparent);
+    --ui-border-accented: color-mix(in srgb, var(--color-shell-300) 32%, transparent);
+    --ui-border-inverted: var(--color-shell-950);
   }
 
   body {
@@ -105,120 +267,245 @@
     background-color: var(--app-shell-via);
     background-image: linear-gradient(135deg, var(--app-shell-from), var(--app-shell-via), var(--app-shell-to));
   }
+
+  /* Visible keyboard focus — the app previously had none anywhere. */
+  :focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+    border-radius: var(--ui-radius);
+  }
+
+  /* Themed scrollbars, so the many overflow panels stop looking like holes. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-shell-500) 45%, transparent) transparent;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--color-shell-500) 40%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--color-shell-400) 55%, transparent);
+  }
+
+  /* Motion preferences.
+     `data-motion` is set by the Settings store so the in-app control works
+     independently of the OS setting, and either one alone is enough to stop
+     animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  :root[data-motion="reduced"] *,
+  :root[data-motion="reduced"] *::before,
+  :root[data-motion="reduced"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 120ms !important;
+  }
+
+  :root[data-motion="off"] *,
+  :root[data-motion="off"] *::before,
+  :root[data-motion="off"] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
+/* ---------------------------------------------------------------------------
+   Components
+--------------------------------------------------------------------------- */
+
 @layer components {
+  /* ---- Layout ---- */
+
   .app-shell {
-    @apply min-h-screen;
+    @apply relative min-h-screen isolate;
     color: var(--app-text);
     background-color: var(--app-shell-via);
     background-image: linear-gradient(135deg, var(--app-shell-from), var(--app-shell-via), var(--app-shell-to));
   }
 
+  /* Two large blurred colour fields behind everything, giving the flat
+     gradient some depth without costing a paint on scroll. */
+  .app-shell::before {
+    content: '';
+    @apply pointer-events-none fixed inset-0 -z-10;
+    background-image:
+      radial-gradient(60rem 40rem at 12% -10%, var(--app-glow-1), transparent 62%),
+      radial-gradient(48rem 34rem at 92% 8%, var(--app-glow-2), transparent 60%);
+  }
+
+  /* Film-grain overlay — a single inline SVG turbulence, no asset request. */
+  .app-noise::after {
+    content: '';
+    @apply pointer-events-none fixed inset-0 -z-10;
+    opacity: var(--app-noise-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
   .app-topbar {
-    @apply border-b shadow-sm backdrop-blur;
+    @apply border-b shadow-sm backdrop-blur-xl;
     color: var(--app-topbar-text);
     background-color: var(--app-topbar);
+    border-bottom-width: var(--app-border-width);
     border-color: var(--app-topbar-border);
   }
 
   .app-topbar-panel {
-    @apply border-t;
+    @apply border-t backdrop-blur-xl;
     background-color: var(--app-topbar-panel);
     border-color: var(--app-topbar-border);
   }
 
-  .app-topbar-kicker {
-    color: var(--app-topbar-muted);
-  }
-
-  .app-topbar-link {
-    color: var(--app-topbar-link);
-  }
+  .app-topbar-kicker { color: var(--app-topbar-muted); }
+  .app-topbar-link { color: var(--app-topbar-link); }
 
   .app-topbar-link:hover {
     color: var(--app-topbar-text);
     background-color: var(--app-topbar-hover);
   }
 
+  /* ---- Typography ---- */
+
   .app-page-title {
-    @apply text-2xl font-bold sm:text-3xl;
+    @apply text-2xl font-bold tracking-tight sm:text-3xl;
     color: var(--app-text);
   }
 
-  .app-muted-text {
-    color: var(--app-text-muted);
-  }
+  .app-muted-text { color: var(--app-text-muted); }
 
   .app-kicker {
-    @apply text-xs font-semibold uppercase tracking-[0.2em];
+    @apply text-xs font-semibold uppercase;
+    letter-spacing: var(--app-kicker-tracking);
     color: var(--app-text-kicker);
   }
 
-  .app-surface {
-    @apply rounded-3xl border shadow-sm backdrop-blur;
-    color: var(--app-text-soft);
-    background-color: var(--app-surface);
-    border-color: var(--app-surface-border);
-    box-shadow: 0 18px 40px -34px rgba(0, 0, 0, 0.7);
+  .app-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, var(--color-brand-300), var(--color-brand-500) 45%, var(--color-shell-300));
   }
 
-  .app-surface-subtle {
-    @apply rounded-2xl border shadow-sm;
-    color: var(--app-text-soft);
-    background-color: var(--app-surface-subtle);
-    border-color: var(--app-surface-border);
-    box-shadow: 0 16px 36px -32px rgba(0, 0, 0, 0.62);
+  .app-gold-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, color-mix(in srgb, var(--app-gold), white 45%), var(--app-gold) 55%, color-mix(in srgb, var(--app-gold), black 25%));
   }
 
-  .app-table-shell {
-    @apply overflow-x-auto rounded-3xl border shadow-sm;
-    color: var(--app-text-soft);
-    background-color: var(--app-surface);
-    border-color: var(--app-surface-border);
-    box-shadow: 0 18px 40px -34px rgba(0, 0, 0, 0.7);
-  }
-
-  .app-card-root {
-    @apply rounded-3xl overflow-hidden;
-    color: var(--app-text-soft);
-  }
-
-  .app-card-header {
-    @apply p-5 font-semibold sm:px-6;
+  .app-hero-number {
+    @apply font-black tabular-nums leading-none tracking-tighter;
     color: var(--app-text);
   }
 
-  .app-card-body {
-    @apply p-5 sm:p-6;
+  /* ---- Surfaces ---- */
+
+  .app-surface {
+    @apply rounded-3xl border;
     color: var(--app-text-soft);
+    background-color: var(--app-surface);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border);
+    backdrop-filter: blur(var(--app-glass-blur));
+    box-shadow: 0 18px 40px -30px rgb(0 0 0 / var(--app-shadow-strength));
   }
 
-  .app-card-footer {
-    @apply p-5 sm:px-6;
-    color: var(--app-text-muted);
+  .app-surface-subtle {
+    @apply rounded-2xl border;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface-subtle);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border);
+    box-shadow: 0 16px 36px -32px rgb(0 0 0 / var(--app-shadow-strength));
   }
+
+  /* Card that reads as lifted off the page — used for primary CTAs and
+     anything that should catch the eye first. */
+  .app-elevated {
+    @apply relative rounded-3xl border overflow-hidden;
+    background-image: linear-gradient(150deg,
+      color-mix(in srgb, var(--color-brand-900) 55%, var(--app-surface)),
+      var(--app-surface) 58%);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border-strong);
+    box-shadow: 0 26px 60px -34px rgb(0 0 0 / var(--app-shadow-strength)),
+                inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+  }
+
+  .app-glass {
+    @apply rounded-2xl border;
+    background-color: color-mix(in srgb, var(--color-shell-50) 6%, transparent);
+    border-width: var(--app-border-width);
+    border-color: color-mix(in srgb, var(--color-shell-50) 12%, transparent);
+    backdrop-filter: blur(var(--app-glass-blur));
+  }
+
+  /* A soft coloured halo behind an element. Set `--glow` to override. */
+  .app-glow {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow, var(--app-accent)) 30%, transparent),
+                0 12px 40px -12px color-mix(in srgb, var(--glow, var(--app-accent)) 45%, transparent);
+  }
+
+  .app-table-shell {
+    @apply overflow-x-auto rounded-3xl border;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border);
+    box-shadow: 0 18px 40px -30px rgb(0 0 0 / var(--app-shadow-strength));
+  }
+
+  .app-card-root { @apply rounded-3xl overflow-hidden; color: var(--app-text-soft); }
+  .app-card-header { @apply p-5 font-semibold sm:px-6; color: var(--app-text); }
+  .app-card-body { @apply p-5 sm:p-6; color: var(--app-text-soft); }
+  .app-card-footer { @apply p-5 sm:px-6; color: var(--app-text-muted); }
 
   .app-surface :where(h1, h2, h3, h4, strong),
   .app-surface-subtle :where(h1, h2, h3, h4, strong),
+  .app-elevated :where(h1, h2, h3, h4, strong),
   .app-table-shell :where(h1, h2, h3, h4, strong) {
     color: var(--app-text);
   }
 
+  .app-divider {
+    @apply h-px w-full border-0;
+    background-image: linear-gradient(90deg, transparent, var(--app-surface-border-strong) 20%, var(--app-surface-border-strong) 80%, transparent);
+  }
+
+  .app-metric-card {
+    @apply rounded-2xl border p-4 transition-colors;
+    color: var(--app-text-soft);
+    background-color: var(--app-surface-muted);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border);
+  }
+
+  .app-metric-card:hover { border-color: var(--app-surface-border-strong); }
+
+  /* ---- Form controls ---- */
+
   .app-control {
-    @apply mt-2 w-full rounded-xl border px-3 py-2 text-sm shadow-sm outline-none ring-0 transition;
+    @apply mt-2 w-full rounded-xl border px-3 py-2 text-sm outline-none transition;
     color: var(--app-text);
     background-color: var(--app-surface-muted);
+    border-width: var(--app-border-width);
     border-color: var(--app-surface-border);
   }
 
   .app-control:focus {
-    border-color: color-mix(in srgb, var(--app-badge-selection-text) 40%, white);
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 3px var(--app-accent-soft);
   }
 
-  .app-status-pill {
-    @apply rounded-full px-3 py-1 text-xs font-semibold;
-  }
+  /* ---- Pills, chips and badges ---- */
+
+  .app-status-pill { @apply rounded-full px-3 py-1 text-xs font-semibold; }
 
   .app-status-pill--success {
     color: var(--app-badge-success-text);
@@ -230,40 +517,36 @@
     background-color: var(--app-badge-warning-bg);
   }
 
-  /* Match event feed filter chips. */
-  .app-filter-chip {
-    @apply rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition;
+  .app-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition;
     color: var(--app-text-muted);
     background-color: var(--app-surface-muted);
+    border-width: var(--app-border-width);
     border-color: var(--app-surface-border);
   }
 
-  .app-filter-chip:hover {
-    color: var(--app-text);
+  .app-chip--success {
+    color: var(--app-badge-success-text);
+    background-color: var(--app-badge-success-bg);
+    border-color: color-mix(in srgb, var(--app-badge-success-text) 34%, transparent);
   }
 
-  .app-filter-chip--active {
-    color: var(--app-badge-selection-text);
-    background-color: var(--app-badge-selection-bg);
-    border-color: color-mix(in srgb, var(--app-badge-selection-text) 40%, transparent);
+  .app-chip--warning {
+    color: var(--app-badge-warning-text);
+    background-color: var(--app-badge-warning-bg);
+    border-color: color-mix(in srgb, var(--app-badge-warning-text) 34%, transparent);
   }
 
-  /* Lineup player states — booked, sent off, or not on the pitch. */
-  .app-player-on-pitch {
-    color: var(--app-text-soft);
+  .app-chip--danger {
+    color: var(--app-badge-danger-text);
+    background-color: var(--app-badge-danger-bg);
+    border-color: color-mix(in srgb, var(--app-badge-danger-text) 30%, transparent);
   }
 
-  .app-player-booked {
-    color: var(--app-player-booked);
-  }
-
-  .app-player-sent-off {
-    @apply line-through;
-    color: var(--app-player-sent-off);
-  }
-
-  .app-player-out {
-    color: var(--app-player-out);
+  .app-chip--gold {
+    color: color-mix(in srgb, var(--app-gold), white 30%);
+    background-color: var(--app-gold-soft);
+    border-color: color-mix(in srgb, var(--app-gold) 38%, transparent);
   }
 
   .app-selection-pill {
@@ -272,59 +555,171 @@
     background-color: var(--app-badge-selection-bg);
   }
 
+  .app-filter-chip {
+    @apply rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition;
+    color: var(--app-text-muted);
+    background-color: var(--app-surface-muted);
+    border-width: var(--app-border-width);
+    border-color: var(--app-surface-border);
+  }
+
+  .app-filter-chip:hover:not(:disabled) {
+    color: var(--app-text);
+    border-color: var(--app-surface-border-strong);
+  }
+
+  .app-filter-chip:disabled { @apply cursor-not-allowed opacity-45; }
+
+  .app-filter-chip--active {
+    color: var(--app-badge-selection-text);
+    background-color: var(--app-badge-selection-bg);
+    border-color: color-mix(in srgb, var(--app-badge-selection-text) 40%, transparent);
+  }
+
+  /* ---- Position badge (themeable, replaces the four duplicated maps) ---- */
+
+  .app-pos-badge {
+    @apply inline-flex min-w-8 items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide;
+    color: var(--pos, var(--app-text-muted));
+    background-color: color-mix(in srgb, var(--pos, var(--app-text-muted)) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pos, var(--app-text-muted)) 32%, transparent);
+  }
+
+  .app-pos-gk { --pos: var(--app-pos-gk); }
+  .app-pos-df { --pos: var(--app-pos-df); }
+  .app-pos-mf { --pos: var(--app-pos-mf); }
+  .app-pos-fw { --pos: var(--app-pos-fw); }
+
+  /* ---- Player status colouring (match lineup panels) ---- */
+
+  .app-player-on-pitch { color: var(--app-text-soft); }
+  .app-player-booked { color: var(--app-player-booked); }
+  .app-player-sent-off { @apply line-through; color: var(--app-player-sent-off); }
+  .app-player-out { color: var(--app-player-out); }
+
+  /* Distinct from `out` — previously an injured player was indistinguishable
+     from a benched one (a known limitation in docs/functional/matchday.md). */
+  .app-player-injured {
+    @apply italic;
+    color: var(--app-player-injured);
+  }
+
+  /* ---- Pitch ---- */
+
   .app-pitch-board {
-    @apply relative overflow-hidden rounded-4xl border px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-6 lg:px-8;
+    @apply relative overflow-hidden rounded-4xl border px-4 py-5 sm:px-6 lg:px-8;
     color: var(--app-pitch-text);
+    border-width: var(--app-border-width);
     border-color: color-mix(in srgb, var(--app-pitch-text) 14%, transparent);
     background-image: linear-gradient(to bottom, var(--app-pitch-from), var(--app-pitch-via), var(--app-pitch-to));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  }
+
+  /* Mown stripes. Opacity is a theme token so Retro can crank them up. */
+  .app-pitch-board::before {
+    content: '';
+    @apply pointer-events-none absolute inset-0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgb(255 255 255 / var(--app-pitch-stripe)) 0 6%,
+      transparent 6% 12%
+    );
+  }
+
+  /* Floodlight vignette. */
+  .app-pitch-board::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0;
+    background-image: radial-gradient(70% 55% at 50% 0%, rgb(255 255 255 / 0.1), transparent 70%);
   }
 
   .app-pitch-player {
-    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border px-3 py-3 text-center shadow-lg backdrop-blur transition hover:-translate-y-0.5;
+    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border px-3 py-3 text-center backdrop-blur transition duration-200 hover:-translate-y-1;
     color: var(--app-pitch-text);
     background-color: var(--app-pitch-card);
-    border-color: color-mix(in srgb, var(--app-pitch-text) 14%, transparent);
-    box-shadow: 0 14px 30px -24px rgba(0, 0, 0, 0.45);
+    border-width: var(--app-border-width);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 16%, transparent);
+    box-shadow: 0 14px 30px -20px rgb(0 0 0 / 0.55);
   }
 
   .app-pitch-player:hover {
     background-color: var(--app-pitch-card-hover);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 32%, transparent);
+    box-shadow: 0 20px 40px -20px rgb(0 0 0 / 0.6),
+                0 0 0 1px color-mix(in srgb, var(--app-accent) 40%, transparent);
   }
 
   .app-pitch-slot {
-    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border border-dashed px-3 py-3 text-center shadow-inner;
+    @apply flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border border-dashed px-3 py-3 text-center transition;
     color: var(--app-pitch-faint);
     background-color: var(--app-pitch-slot);
-    border-color: color-mix(in srgb, var(--app-pitch-text) 20%, transparent);
+    border-color: color-mix(in srgb, var(--app-pitch-text) 22%, transparent);
   }
 
-  .app-pitch-muted {
-    color: var(--app-pitch-muted);
+  .app-pitch-slot--target {
+    color: var(--app-pitch-text);
+    border-color: var(--app-accent);
+    background-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-pitch-slot));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 25%, transparent);
   }
 
-  .app-pitch-faint {
-    color: var(--app-pitch-faint);
+  .app-pitch-muted { color: var(--app-pitch-muted); }
+  .app-pitch-faint { color: var(--app-pitch-faint); }
+
+  .app-pitch-line {
+    @apply pointer-events-none absolute border;
+    border-color: var(--app-pitch-line);
   }
 
-  .app-metric-card {
-    @apply rounded-2xl border p-4 shadow-sm;
-    color: var(--app-text-soft);
-    background-color: var(--app-surface-muted);
-    border-color: var(--app-surface-border);
-  }
-
-  .app-gradient-text {
-    @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #34d399, #38bdf8);
-  }
+  /* ---- Progress bars ---- */
 
   .app-stat-bar-track {
     @apply h-1.5 w-full overflow-hidden rounded-full;
-    background-color: rgba(148, 163, 184, 0.15);
+    background-color: color-mix(in srgb, var(--color-shell-400) 16%, transparent);
   }
 
   .app-stat-bar-fill {
-    @apply h-full rounded-full transition-all duration-500;
-    background-image: linear-gradient(90deg, #10b981, #34d399);
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+    background-image: linear-gradient(90deg, var(--color-brand-600), var(--color-brand-400));
   }
+
+  .app-stat-bar-fill--warning { background-image: linear-gradient(90deg, #d97706, #fbbf24); }
+  .app-stat-bar-fill--danger { background-image: linear-gradient(90deg, #dc2626, #f87171); }
+  .app-stat-bar-fill--gold {
+    background-image: linear-gradient(90deg, color-mix(in srgb, var(--app-gold), black 25%), var(--app-gold));
+  }
+
+  /* ---- Loading skeleton (finally wires up --animate-shimmer) ---- */
+
+  .app-skeleton {
+    @apply rounded-lg;
+    background-color: color-mix(in srgb, var(--color-shell-400) 12%, transparent);
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--color-shell-300) 14%, transparent) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+
+  /* ---- Table row states ---- */
+
+  .app-row-highlight {
+    background-color: color-mix(in srgb, var(--app-accent) 10%, transparent);
+    box-shadow: inset 3px 0 0 var(--app-accent);
+  }
+
+  .app-zone-promo { box-shadow: inset 3px 0 0 var(--color-brand-400); }
+  .app-zone-europe { box-shadow: inset 3px 0 0 var(--app-pos-gk); }
+  .app-zone-relegation { box-shadow: inset 3px 0 0 var(--app-player-sent-off); }
+
+  /* ---- Page transition (nuxt.config pageTransition name) ---- */
+
+  .page-fade-enter-active,
+  .page-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+
+  .page-fade-enter-from { opacity: 0; transform: translateY(8px); }
+  .page-fade-leave-to { opacity: 0; transform: translateY(-6px); }
 }

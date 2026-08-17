@@ -94,6 +94,8 @@ Individual footballers. Each player belongs to exactly one team.
 | `market_value` | INTEGER | NOT NULL | Transfer value in USD |
 | `team_id` | INTEGER | NOT NULL, FK → teams.id | Current club |
 | `injured_matches` | INTEGER | NOT NULL, default `0` | Matches remaining before this player is selectable again. `0` = fit |
+| `potential` | INTEGER | NOT NULL, default `0` | Skill ceiling. Development moves `skill_level` toward it and never past it. See [season.md](season.md#progression) |
+| `retired` | INTEGER | NOT NULL, default `0` | `1` once retired at a rollover. **Rows are kept, never deleted** — `match_events.player_id` references them |
 
 **Position string handling:** The seed file stores abbreviated positions (`GK`, `DEF`, `MID`, `ATT`); some code paths historically expected full English names (`Goalkeeper`, `Defender`, `Midfielder`, `Forward`/`Attacker`). Both forms are now normalised to the canonical `GK | DF | MF | FW` slots by a single shared function, `normalizePosition()` in `frontend/shared/lineup.ts`, used by the match engine, the team/lineup API routes, and the Dashboard/Matchday pages. See [match-engine.md](match-engine.md) for details.
 
@@ -167,10 +169,33 @@ One row per fixture in the season schedule.
 | `away_score` | INTEGER | nullable | Goals scored by away team; `NULL` = not yet played |
 | `played` | INTEGER | NOT NULL, DEFAULT 0 | `1` once the match has been simulated |
 | `season` | INTEGER | NOT NULL, FK → season.id | Which season this fixture belongs to |
-| `match_date` | INTEGER (timestamp) | NOT NULL | Scheduled kick-off datetime |
+| `round` | INTEGER | NOT NULL, default `0` | Matchday number within the season, 1-based. Every fixture in a round shares a `match_date` |
+| `match_date` | INTEGER (timestamp) | NOT NULL | Scheduled kick-off datetime. Rounds are 7 days apart from a fixed season start |
 | `state` | TEXT | nullable | Live `MatchState` JSON (see `shared/match-state.ts`) while the match is paused mid-way. `NULL` when not started or already finished — same convention as `teams.lineup`'s "nothing saved" |
 
 **Determining result:** A match with `home_score IS NOT NULL` (equivalently `played = 1`) is considered fully played. **A match with `state IS NOT NULL` and `played = 0` is in progress** — paused between `POST /api/match/start` and full time. `POST /api/match/start`'s fallback (no `matchId` given) prefers an in-progress match over the next unplayed one by date, so a paused game isn't skipped past.
+
+---
+
+### `season_summary`
+
+One row per league per completed season, written by the rollover.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY | Surrogate key |
+| `season` | INTEGER | NOT NULL, FK → season.id | The season that finished |
+| `league_id` | INTEGER | NOT NULL, FK → leagues.id | Which league |
+| `champion_team_id` | INTEGER | NOT NULL, FK → teams.id | Winner |
+| `champion_points` | INTEGER | NOT NULL | Winning points total |
+| `player_team_id` | INTEGER | nullable, FK → teams.id | `NULL` when the player's club isn't in this league |
+| `player_position` | INTEGER | nullable | Their finishing position |
+| `player_points` | INTEGER | nullable | Their points total |
+| `completed_at` | INTEGER (timestamp) | NOT NULL | When the rollover ran |
+
+Standings are otherwise computed on the fly from `matches`, which is fine while a season is live but loses everything the moment the next season's fixtures are inserted. This is what survives a rollover.
+
+**Delete order:** this table references `season`, `leagues` and `teams`, so `seed.ts` must clear it before any of them.
 
 ---
 
@@ -210,5 +235,6 @@ Drizzle generates incremental SQL migration files in `server/db/migrations/`. Cu
 | `0006_rework_event_types.sql` | Removes `miss` (reassigning its events to `shot`), adds `shot_on_target`, `corner`, `cross`, `offside` |
 | `0007_add_match_state.sql` | Adds `matches.state` and `match_events.related_player_id`; seeds the `substitution` event type |
 | `0008_add_player_injuries.sql` | Adds `players.injured_matches`, default `0` |
+| `0008_public_exiles.sql` | Adds `players.potential` and `players.retired`, `matches.round`, and the `season_summary` table. Backfills `potential` with age-appropriate headroom so existing saves keep developing |
 
 **Warning:** Two files share the `0004_` prefix, which indicates a migration branch conflict. The `meta/_journal.json` file determines which is actually applied. Run `bun run db:push` to ensure the schema is up to date before running.

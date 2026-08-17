@@ -88,7 +88,13 @@ export default defineEventHandler(async (event) => {
 
   const buyerTeamIds = possibleBuyers.map(team => team.id)
   const teamPlayers = await db.query.players.findMany({
-    where: inArray(players.teamId, [sellerTeam.id, ...buyerTeamIds]),
+    where: and(
+      inArray(players.teamId, [sellerTeam.id, ...buyerTeamIds]),
+      // Retired and released players would otherwise drag every squad average
+      // down — neither is in the squad any more.
+      eq(players.retired, 0),
+      eq(players.freeAgent, 0),
+    ),
   })
 
   const playersByTeam = new Map<number, typeof teamPlayers>()

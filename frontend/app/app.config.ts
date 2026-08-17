@@ -2,8 +2,12 @@ export default defineAppConfig({
   // https://ui.nuxt.com/getting-started/theme#design-system
   ui: {
     colors: {
-      primary: 'emerald',
-      neutral: 'slate',
+      // Both point at ramps we declare ourselves in `main.css` rather than at
+      // stock Tailwind palettes. That is what makes runtime theming possible:
+      // Nuxt UI resolves `--ui-color-primary-500` to `var(--color-brand-500)`,
+      // and `utils/themes.ts` rewrites that variable on <html>.
+      primary: 'brand',
+      neutral: 'shell',
     },
     card: {
       slots: {
@@ -40,5 +44,21 @@ export default defineAppConfig({
         variant: 'outline',
       },
     },
-  }
+    modal: {
+      slots: {
+        overlay: 'backdrop-blur-sm',
+        content: 'app-surface',
+      },
+    },
+    tooltip: {
+      slots: {
+        content: 'app-glass px-2 py-1 text-xs',
+      },
+    },
+    table: {
+      slots: {
+        th: 'app-kicker text-left',
+      },
+    },
+  },
 })

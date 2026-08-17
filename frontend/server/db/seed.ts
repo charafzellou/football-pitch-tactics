@@ -3,6 +3,19 @@ import * as schema from './schema'
 import { faker } from '@faker-js/faker'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { eq } from 'drizzle-orm'
+import { buildSeasonFixtures } from '../core/calendar'
+import { SQUAD_SHAPE, initialPotential, marketValueFor, positionsToFill } from '../core/progression'
+import type { PositionCode } from '../core/progression'
+import {
+  fairTicketPrice,
+  reputationFor,
+  squadStrength,
+  stadiumCapacityFor,
+  stadiumNameFor,
+  startingBalanceFor,
+  wageFor,
+} from '../core/economy'
 
 interface SeedPlayer {
   name: string
@@ -24,9 +37,15 @@ const laLigaData = JSON.parse(
   readFileSync(join(__dirname, 'data/la-liga.json'), 'utf-8')
 ) as LeagueSeedData
 
-// Clear existing data in correct order (to avoid foreign key constraint issues)
+// Clear existing data in correct order (to avoid foreign key constraint issues).
+// `season_summary` references season, leagues and teams, so it has to go before
+// any of them.
 await db.delete(schema.matchEvents)
 await db.delete(schema.matches)
+await db.delete(schema.seasonSummary)
+await db.delete(schema.transferOffers)
+await db.delete(schema.clubNews)
+await db.delete(schema.financeLedger)
 await db.delete(schema.eventType)
 await db.delete(schema.game)
 await db.delete(schema.season)
@@ -134,95 +153,114 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
     const teamPlayers = playersData[teamName]
     if (teamPlayers && teamPlayers.length > 0) {
       // Insert real players
-      for (const playerData of teamPlayers) {
-        await db.insert(schema.players).values({
-          name: playerData.name,
-          age: playerData.age,
-          position: playerData.position,
-          skillLevel: playerData.skillLevel,
-          stamina: 100,
-          marketValue: faker.number.int({
-            min: playerData.skillLevel * 50000,
-            max: playerData.skillLevel * 250000
-          }),
-          teamId: insertedTeam.id,
-        })
-      }
+      await db.insert(schema.players).values(teamPlayers.map(playerData => ({
+        name: playerData.name,
+        age: playerData.age,
+        position: playerData.position,
+        skillLevel: playerData.skillLevel,
+        potential: initialPotential(playerData.skillLevel, playerData.age),
+        stamina: 100,
+        marketValue: marketValueFor(playerData.skillLevel, playerData.age),
+        teamId: insertedTeam.id,
+      })))
     } else {
-      // Generate fake players for teams without real data
-      const fallbackPositions = ['GK', 'DEF', 'MID', 'ATT'] as const
-      for (let j = 0; j < 22; j++) {
-        const position = fallbackPositions[faker.number.int({ min: 0, max: 3 })]
-        if (!position)
-          throw new Error('Failed to generate fallback position')
+      // Generated squads for clubs without real data.
+      //
+      // Positions come from `positionsToFill` rather than a uniform random
+      // draw: the old version could hand a club eight goalkeepers and no
+      // forwards, which is why lineup auto-selection needs a fallback path.
+      const empty = { GK: 0, DEF: 0, MID: 0, ATT: 0 } as Record<PositionCode, number>
+      const squadSize = Object.values(SQUAD_SHAPE).reduce((total, n) => total + n, 0)
 
-        await db.insert(schema.players).values({
+      await db.insert(schema.players).values(positionsToFill(empty, squadSize).map((position) => {
+        const age = faker.number.int({ min: 18, max: 35 })
+        const skillLevel = faker.number.int({ min: 50, max: 79 })
+        const potential = initialPotential(skillLevel, age)
+
+        return {
           name: faker.person.fullName(),
-          age: faker.number.int({ min: 18, max: 35 }),
+          age,
           position,
-          skillLevel: faker.number.int({ min: 50, max: 79 }),
+          skillLevel,
+          potential,
           stamina: 100,
-          marketValue: faker.number.int({ min: 100000, max: 20000000 }),
+          marketValue: marketValueFor(skillLevel, age, potential),
           teamId: insertedTeam.id,
-        })
-      }
+        }
+      }))
     }
   }
 }
 
-// Generate a full season schedule for all leagues
-const generateSchedule = (teams: { id: number }[]) => {
-  const schedule: Array<{ homeTeamId: number; awayTeamId: number; season: number; matchDate: Date }> = []
-  const numTeams = teams.length
-  const halfNumTeams = numTeams / 2
-  const rounds = (numTeams - 1) * 2
+/**
+ * Economy pass.
+ *
+ * Runs after every squad exists because reputation is partly a club's *rank*
+ * within its league, which can't be known until all of them are seeded. It then
+ * cascades: reputation sizes the stadium, the stadium and reputation set the
+ * ticket price and starting balance, and reputation feeds back into wages so a
+ * bigger club pays more for the same player.
+ */
+for (const league of seededLeagues) {
+  const leagueTeams = await db.query.teams.findMany({
+    where: (teams, { eq }) => eq(teams.leagueId, league.id),
+  })
+  if (!leagueTeams.length)
+    continue
 
-  const teamIds = teams.map(t => t.id)
-
-  for (let round = 0; round < rounds; round++) {
-    for (let i = 0; i < halfNumTeams; i++) {
-      const homeTeamId = teamIds[i]
-      const awayTeamId = teamIds[numTeams - 1 - i]
-      if (typeof homeTeamId !== 'number' || typeof awayTeamId !== 'number')
-        continue
-
-      if (round < rounds / 2) {
-        schedule.push({
-          homeTeamId,
-          awayTeamId,
-          season: 1,
-          matchDate: faker.date.future(),
-        })
-      }
-      else {
-        schedule.push({
-          homeTeamId: awayTeamId,
-          awayTeamId: homeTeamId,
-          season: 1,
-          matchDate: faker.date.future(),
-        })
-      }
-    }
-    // Rotate teams
-    const lastTeam = teamIds.pop()
-    if (lastTeam)
-      teamIds.splice(1, 0, lastTeam)
+  const squads = new Map<number, { skillLevel: number; id: number; age: number; marketValue: number }[]>()
+  for (const team of leagueTeams) {
+    squads.set(team.id, await db.query.players.findMany({
+      where: (players, { eq }) => eq(players.teamId, team.id),
+      columns: { id: true, age: true, skillLevel: true, marketValue: true },
+    }))
   }
-  return schedule
+
+  const ranked = [...leagueTeams].sort((a, b) =>
+    squadStrength(squads.get(b.id) ?? []) - squadStrength(squads.get(a.id) ?? []))
+
+  for (const [index, team] of ranked.entries()) {
+    const squad = squads.get(team.id) ?? []
+    const reputation = reputationFor(squad, index + 1, ranked.length)
+    const capacity = stadiumCapacityFor(reputation)
+
+    await db.update(schema.teams).set({
+      reputation,
+      stadiumCapacity: capacity,
+      stadiumName: stadiumNameFor(team.name),
+      ticketPrice: fairTicketPrice(reputation),
+      bankBalance: startingBalanceFor(reputation, capacity),
+    }).where(eq(schema.teams.id, team.id))
+
+    for (const player of squad) {
+      await db.update(schema.players).set({
+        wage: wageFor(player.marketValue, player.age, reputation),
+        // Staggered so the squad doesn't all come out of contract at once —
+        // roughly one in six is in a final year from the start, which gives the
+        // player renewal decisions immediately rather than in three seasons.
+        contractUntilSeason: 1 + (Math.random() < 0.17 ? 0 : 1 + Math.floor(Math.random() * 3)),
+      }).where(eq(schema.players.id, player.id))
+    }
+  }
 }
 
-// Generate schedules for all leagues
+// Generate season 1 fixtures for every league.
+//
+// The pairing logic moved into `server/core/calendar.ts` so the season
+// rollover can reuse it verbatim for season 2 onward. Fixtures within a round
+// now share a kickoff date a week apart from the last, which is what makes
+// "resolve every fixture up to today" mean exactly one matchday.
 for (const league of seededLeagues) {
   const teamsInLeague = await db.query.teams.findMany({
     where: (teams, { eq }) => eq(teams.leagueId, league.id),
   })
 
-  if (teamsInLeague.length > 0) {
-    const schedule = generateSchedule(teamsInLeague)
-    if (schedule.length > 0) {
-      await db.insert(schema.matches).values(schedule)
-    }
-  }
+  if (!teamsInLeague.length)
+    continue
+
+  const fixtures = buildSeasonFixtures(teamsInLeague.map(team => team.id), 1)
+  if (fixtures.length)
+    await db.insert(schema.matches).values(fixtures)
 }
 
 process.exit(0)

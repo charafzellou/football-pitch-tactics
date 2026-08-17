@@ -1,17 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { game, matches, players } from '../../db/schema'
+import { game, matches, teams } from '../../db/schema'
 import { syncToMinute } from '../../core/match-session'
+import { resolveFixturesUpTo, settleMatchFitness } from '../../core/matchday-ai'
+import { buildMatchdayContext, settleMatchFinances } from '../../core/finance'
+import { settleBoardForMatchday } from '../../core/board'
 import type { MatchState } from '#shared/match-state'
-import {
-  INJURY_MATCHES_MAX,
-  INJURY_MATCHES_MIN,
-  MATCH_MINUTES,
-  recoveredStamina,
-} from '#shared/match-state'
+import { MATCH_MINUTES } from '#shared/match-state'
 
 /**
- * Full time — commits the result and settles fitness.
+ * Full time — commits the result, settles fitness, and advances the world.
  *
  * This is deliberately its own route rather than something `advance` does
  * when its segment happens to reach minute 90. The second-half segment is
@@ -47,22 +45,71 @@ export default defineEventHandler(async (event) => {
       alreadyFinished: true,
       homeScore: match.homeScore,
       awayScore: match.awayScore,
+      othersResolved: 0,
     }
   }
 
   const state = await syncToMinute(matchId, MATCH_MINUTES)
-  await finalizeMatch(matchId, match, state)
+
+  // League context for gate receipts and commercial income. Built before the
+  // transaction because it reads the standings, which the transaction is about
+  // to change.
+  const homeClub = await db.query.teams.findFirst({ where: eq(teams.id, match.homeTeamId) })
+  const financeContext = homeClub
+    ? await buildMatchdayContext(homeClub.leagueId, match.season, match.round)
+    : null
+
+  const advancedTo = await finalizeMatch(matchId, match, state, financeContext)
+
+  /**
+   * The rest of the matchday.
+   *
+   * Only the player's own fixtures used to be simulated, which left the
+   * league table meaningless — every other club sat on nil. Now that the
+   * calendar has moved past this round, every other fixture dated at or
+   * before it is played out headlessly, so the standings the manager returns
+   * to are real.
+   */
+  let othersResolved = 0
+  const gameState = await db.query.game.findFirst()
+  if (gameState && advancedTo) {
+    const result = await resolveFixturesUpTo(advancedTo, gameState.playerTeamId)
+    othersResolved = result.resolved
+  }
+
+  // The board and the support judge the manager on where the round left them,
+  // which is only knowable once every other result is in.
+  const board = await settleBoardForMatchday()
 
   return {
     finished: true,
     alreadyFinished: false,
     homeScore: state.home.score,
     awayScore: state.away.score,
+    othersResolved,
+    board: board
+      ? {
+          boardConfidence: board.boardConfidence,
+          fanConfidence: board.fanConfidence,
+          confidenceStreak: board.confidenceStreak,
+          dismissed: board.dismissed,
+        }
+      : null,
   }
 })
 
-/** Commits the score, clears live state, settles fitness, advances the calendar. */
-async function finalizeMatch(matchId: number, match: { matchDate: unknown }, state: MatchState) {
+/**
+ * Commits the score, clears live state, settles fitness, advances the calendar.
+ * Returns the date the calendar was moved to.
+ */
+async function finalizeMatch(
+  matchId: number,
+  match: { matchDate: unknown; homeTeamId: number; awayTeamId: number },
+  state: MatchState,
+  financeContext: Awaited<ReturnType<typeof buildMatchdayContext>> | null,
+): Promise<Date | null> {
+  let advancedTo: Date | null = null
+
   await db.transaction(async (tx) => {
     await tx.update(matches).set({
       homeScore: state.home.score,
@@ -71,30 +118,12 @@ async function finalizeMatch(matchId: number, match: { matchDate: unknown }, sta
       state: null,
     }).where(eq(matches.id, matchId))
 
-    for (const side of [state.home, state.away]) {
-      const newlyInjured = new Set(side.injured)
+    // Shared with AI fixtures so both settle identically — otherwise only the
+    // human's squad would ever tire, or only the human would pay wages.
+    await settleMatchFitness(tx, state)
 
-      for (const [rawId, stamina] of Object.entries(side.stamina)) {
-        const playerId = Number(rawId)
-        const current = await tx.query.players.findFirst({ where: eq(players.id, playerId) })
-        if (!current)
-          continue
-
-        // A player already sitting out counts this match against their
-        // absence; a fresh injury starts a new one.
-        const injuredMatches = newlyInjured.has(playerId)
-          ? INJURY_MATCHES_MIN + Math.floor(Math.random() * (INJURY_MATCHES_MAX - INJURY_MATCHES_MIN + 1))
-          : Math.max(0, (current.injuredMatches ?? 0) - 1)
-
-        // `players.stamina` is written as the value the player will *start*
-        // their next match with, so the lineup builder shows the truth
-        // rather than a pre-recovery number the engine would silently
-        // improve at kickoff. Players out injured recover too.
-        await tx.update(players)
-          .set({ stamina: Math.round(recoveredStamina(stamina)), injuredMatches })
-          .where(eq(players.id, playerId))
-      }
-    }
+    if (financeContext)
+      await settleMatchFinances(tx, match.homeTeamId, match.awayTeamId, financeContext)
 
     const gameState = await tx.query.game.findFirst()
     if (gameState) {
@@ -103,7 +132,11 @@ async function finalizeMatch(matchId: number, match: { matchDate: unknown }, sta
         const n = Number(match.matchDate)
         matchDateObj = Number.isNaN(n) ? new Date() : new Date(n)
       }
-      await tx.update(game).set({ currentDate: new Date(matchDateObj.getTime() + 1000) }).where(eq(game.id, gameState.id))
+
+      advancedTo = new Date(matchDateObj.getTime() + 1000)
+      await tx.update(game).set({ currentDate: advancedTo }).where(eq(game.id, gameState.id))
     }
   })
+
+  return advancedTo
 }

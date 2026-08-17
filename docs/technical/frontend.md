@@ -2,282 +2,221 @@
 
 The frontend is a Nuxt 4 application using the `app/` directory convention. Everything under `frontend/app/` is the Vue SPA layer.
 
+## Rendering mode
+
+`ssr: false` — the app is a true SPA.
+
+Every route sits behind the active-save guard and fetches its own state on mount, so server rendering produced an empty shell while actively causing bugs. The lineup builder restores a saved XI from the API, which the server cannot know about; its markup therefore disagreed with the client's on hydration, and because Vue does not rectify mismatches, controls were left stuck in their server-rendered `disabled` state. There is no SEO surface to lose — it is a local single-player game.
+
+The theme is still applied **before first paint** via a synchronous inline script in `<head>` (see [css-styling.md](css-styling.md#no-flash-of-the-wrong-theme)), so SPA mode costs nothing visually.
+
 ---
 
 ## Pages
 
-All pages live under `frontend/app/pages/` and are auto-registered by Nuxt's file-based router.
-
 ### `/` — `pages/index.vue`
-**Purpose:** Landing / home screen.
+Landing screen. Animated pitch-line backdrop, staggered hero, feature strip.
 
-**Behaviour:**
-- Renders a centred hero card with animated fade-in.
-- Single CTA button → navigates to `/new-game`.
-- No API calls.
+Checks `GET /api/game/state` on mount: if a save exists, **Continue with {club}** becomes the primary action and "Start a new game" is demoted, with a warning that it replaces the save. Previously the only route out of this page was destroying the current game.
 
 ---
 
 ### `/new-game` — `pages/new-game.vue`
-**Purpose:** New save wizard. Player selects country → league → club.
+New save wizard: country → league → club.
 
-**Data fetched:**
-- `GET /api/countries` — country list
-- `GET /api/leagues?countryId` — leagues for selected country
-- `GET /api/teams?leagueId` — teams for selected league
-
-**Reactive cascade:** `watch(selectedCountry)` triggers `refreshLeagues()`; `watch(selectedLeague)` triggers `refreshTeams()`.
-
-**On submit:** Calls `POST /api/game/start` with `{ teamId }` then navigates to `/game`.
-
-**UI notes:** Animated 3-step indicator (Country / League / Club) using `animate-fade-in-up`; each dropdown fades in via Vue `<Transition>`.
+- Step indicator is a real progress bar with completion checks.
+- The cascade selects **the first item of each fetched list**. It previously used hardcoded id switches (`case 1: selectedLeague = 1`), which silently broke for any country beyond the two seeded ones.
+- Selecting a club shows a **preview card** (squad size, average rating, average age, transfer funds, star player) from `GET /api/team/:id`.
+- `POST /api/game/start` destroys any existing save, so when one exists the Start button opens an `AppConfirmModal` requiring the phrase **"new game"** to be typed.
 
 ---
 
 ### `/game` — `pages/game/index.vue`
-**Purpose:** Main dashboard. Shows club status, next match, and the lineup builder.
+Dashboard: club status, next fixture, and the lineup builder.
 
-**Data fetched (on mount):**
-- `GET /api/game/state` → player team ID
-- `GET /api/team/:playerTeamId` → squad + bank balance
-- `GET /api/schedule` → next upcoming fixture
-- `GET /api/standings?leagueId` → league table for position
-- `GET /api/team/:awayTeamId` → opponent details
-- `GET /api/tactics` → available formations
+**Club Status** — league position, animated bank balance, squad size with injury count, and a last-five **form guide**.
 
-**Key computed state:**
+**Next Match** — a real head-to-head: opponent name, their league rank, and average-XI-skill comparison bars with a plain-language verdict. (`opponentTeam` was previously fetched in full but only its name was displayed.)
 
-| Name | Description |
-|---|---|
-| `squadPlayers` | Full squad array from team data |
-| `selectedSquadPlayers` | Players in the current lineup selection, sorted GK→DF→MF→FW |
-| `formationRequirements` | `{ GK, DF, MF, FW }` slot counts from selected tactic |
-| `selectedPositionCounts` | How many of each position are currently selected |
-| `pitchRows` | Ordered rows (FW→MF→DF→GK) with slots (filled player or empty) for pitch visualisation |
-| `lineupIsComplete` | `true` when exactly 11 players are selected matching formation |
-| `lineupMetrics` | Average skill, stamina, age, total value for selected lineup |
-| `leaguePosition` | Player's current rank in the standings |
+**Lineup builder** (`components/LineupPitch.vue`)
+- Pitch markings, mown stripes, floodlight vignette.
+- Player tiles carry a conic-gradient skill ring, stamina bar and injury flag.
+- **Drag and drop** from the squad table onto the pitch; the legal slot highlights, an illegal drop shakes.
+- Controls: **Auto-pick best XI** (reuses `autoSelectLineup()` from `#shared/lineup`), **Save without playing**, **Clear teamsheet** — all with undo toasts.
+- Changing formation clears the XI, so it now asks first via `AppConfirmModal` (with undo) rather than doing it silently.
+- Selecting a player is **silent on success** — the marker appearing is the feedback. Only a *blocked* selection raises a toast. The old build fired a toast on every single tap.
 
-**Player selection logic (`togglePlayerSelection`):**
-- If already selected → deselect (always allowed).
-- If not selected: checks total ≤ 10, position slot not full, valid tactic selected.
-- Changing tactic resets the entire lineup (toast notification).
+**Readiness checklist** — the "Go to Matchday" button states exactly what is missing ("Pick 1 more defender") instead of just being disabled.
 
-**Restoring a saved lineup:** on load, once both `tacticOptions` and `team` are available, a one-time hydration step reads `team.lineup` (via the shared `parseLineup()`) and pre-populates `selectedPlayers` if a saved XI exists — so returning to the Dashboard doesn't start the builder empty.
-
-**On "Go to Matchday":** Saves the tactic via `PUT /api/team/:id/tactics`, then the selected XI via `PUT /api/team/:id/lineup`, then navigates to `/matchday`. If either save request fails, an error toast is shown and navigation is aborted — the player is never sent to Matchday with an unsaved team sheet. Position normalisation and lineup-size constants (`LINEUP_SIZE`, `LINEUP_SLOT_ORDER`) are imported from `#shared/lineup` rather than defined locally.
+**Squad table** — position tabs, search, availability/fitness filters and sort, via `useSquadFilters`.
 
 ---
 
 ### `/game/team` — `pages/game/team.vue`
-**Purpose:** Full squad view with sell actions.
+Full squad with sell actions.
 
-**Data fetched:** `GET /api/team/:playerTeamId`
-
-**Table columns:** Name, Age, Position (colored badge), Skill Level (stat bar), Stamina (stat bar), Market Value, Sell button.
-
-**Sell action:** Calls `POST /api/transfers { playerId, action: 'sell' }`, refreshes team data, shows toast with buyer name and sale price.
+- **Squad summary header**: size, average age, average skill, total value, injured count, players below 60% fitness.
+- **Selling now requires confirmation.** It was previously a single unguarded click on a permanent, irreversible transfer. The modal states the fee, the resulting balance, and warns when the sale would leave a position below the current formation's requirement.
+- Clicking a name opens a **player detail drawer**.
+- Confirmation can be disabled in Settings.
 
 ---
 
 ### `/game/schedule` — `pages/game/schedule.vue`
-**Purpose:** Full fixture list — past and upcoming — for the player's team.
+Fixtures as cards grouped by month, not a table of ISO dates.
 
-**Data fetched:**
-- `GET /api/schedule?includePlayed=true` — all fixtures
-- `GET /api/game/state` → player team ID
-- `GET /api/team/:playerTeamId` → league ID
-- `GET /api/teams?leagueId` → team name lookup map
-
-**Table columns:** Date (ISO), Home Team, Away Team, Score (W/D/L badge or TBD badge).
-
-**Score rendering:** If `homeScore !== null`, shows "N – N" plus a colour-coded result badge from the home team's perspective.
+Player's club emphasised on both sides; home/away marker; the next fixture is highlighted with a countdown; results are colour-coded W/D/L; All / Upcoming / Played filters with counts; a form strip in the header.
 
 ---
 
 ### `/game/standings` — `pages/game/standings.vue`
-**Purpose:** League table.
+League table.
 
-**Data fetched:** `GET /api/standings?leagueId`
-
-**Table columns:** Rank (medal icon for top 3), Team, P, W, D, L, GF, GA, GD, Pts.
-
-**Rank computation:** Client-side; `standings.value` is already sorted server-side; a `computed` adds `rank: i + 1`.
+The player's own row is **highlighted** (previously indistinguishable from the other nineteen). Zone banding for champion / European places / relegation with a legend, a **form column**, points-behind-leader, medal icons for the top three and a gold treatment for the leader.
 
 ---
 
 ### `/game/transfers` — `pages/game/transfers.vue`
-**Purpose:** Transfer market — search for players to buy; sell your own via the Team page.
+Transfer market.
 
-**Data fetched:**
-- `GET /api/game/state` — player team ID
-- `GET /api/team/:playerTeamId` — current bank balance
-- `GET /api/players/search?query=` — available players (reactive to search input)
+- The native `confirm()` box is replaced by `AppConfirmModal`, showing fee and balance-after.
+- Search is **debounced** (350 ms); it previously fired a request per keystroke.
+- Position tabs, "affordable only", and sort by skill/value/age. Results capped at 60.
+- Each card shows what share of the budget the fee consumes; unaffordable players state the shortfall.
+- A completed signing fires confetti.
 
-**Search:** Debounced via `encodeURIComponent` of search string. Search results exclude the player's own squad (enforced server-side).
+---
 
-**Buy action:** Shows a `confirm()` dialog → `POST /api/transfers { playerId, action: 'buy' }` → refreshes balance and search results → toast.
-
-**Affordability:** Buy button is disabled if `player.marketValue > availableBudget`.
-
-**Budget tracking:** Uses `useAsyncData` watching `playerTeamId` to prevent stale `€0` balance.
+### `/game/settings` — `pages/game/settings.vue`
+**New.** Theme picker with live miniatures, an eight-swatch colour editor with WCAG contrast readouts, the generated 50–950 ramps, a live component preview, motion level, audio controls with test buttons, and gameplay defaults. Export/import a palette as JSON. See [css-styling.md](css-styling.md#themes).
 
 ---
 
 ### `/matchday` — `pages/matchday/index.vue`
-**Purpose:** Live match simulation playback with a virtual clock.
+Live match playback. The simulation lifecycle is unchanged — see [matchday.md](../functional/matchday.md) — but presentation moved into `components/matchday/*`, leaving the page responsible only for running the match.
 
-See [matchday.md](../functional/matchday.md) for the full functional description.
-
-**Live-match state:** a match is simulated in segments via `POST /api/match/start`, `/advance`, and `/changes` (see [api-routes.md](api-routes.md)), not one call. The score and both lineup panels are derived every tick from `applyEvents(anchorState, allEvents, currentMinute)` (`#shared/match-state`) — the same function the server uses internally — rather than hand-accumulated. See [matchday.md](../functional/matchday.md#simulation-lifecycle) for the full lifecycle.
-
-**Data fetched:**
-- `GET /api/schedule` → next unplayed fixture
-- `GET /api/team/:homeTeamId` and `GET /api/team/:awayTeamId` → both squads, plus each team's resolved `startingXi`/`bench`/`lineupAutoSelected`
-
-**Lineup panels** show the *live* XI and bench, not the pre-match preview — a substitution moves a player between sections in real time as it's revealed on the clock. Coloured by live match status (on pitch / booked / sent off / benched) and now carry a per-player stamina bar. See [tactics.md](../functional/tactics.md#lineup-resolution-and-auto-select) and [matchday.md](../functional/matchday.md#lineup-panels) for the resolution and colouring rules.
-
-**`MatchTacticsPanel` (`components/MatchTacticsPanel.vue`):** the player's in-match management surface — staged substitutions, a formation selector, subs-remaining counter — opened at any pause and forced open at half time. See [matchday.md](../functional/matchday.md#tactical-pauses-and-half-time).
-
-**Layout:** the three panels (Home Lineup, Match Events, Away Lineup) form a responsive grid — one row of three on desktop, two columns/two rows on mobile with Match Events spanning the bottom row. See [matchday.md](../functional/matchday.md#responsive-layout).
-
-**Navigation guard:** `onBeforeRouteLeave` blocks leaving while `hasStarted && !isFinished`, preventing the player from abandoning an in-progress match.
+The clock uses `useIntervalFn` at `1000 / speed` ms, so the **playback speed control (1× / 2× / 4×)** and "skip to half/full time" drive it directly.
 
 ---
 
 ## Components
 
-### `components/Sidebar.vue`
-The top navigation bar, rendered only on `/game*` routes.
+### Shared primitives
+| Component | Purpose |
+|---|---|
+| `AppConfirmModal.vue` | The single confirmation surface for destructive actions, with a `consequences` slot and optional typed-phrase gate |
+| `AppStatBar.vue` | Labelled progress bar with threshold colouring — replaces bar markup that was hand-repeated in five files |
+| `AppSkeleton.vue` | Shimmer placeholders (text / card / table / list / pitch) |
+| `AppEmptyState.vue` | Icon + headline + hint + optional action |
+| `AppPositionBadge.vue` | Position badge — replaces **four** drifted `positionColors` maps, one of which keyed on raw `GK/DEF/MID/ATT` while the rest used normalised `GK/DF/MF/FW` |
+| `AppCountUp.vue` | Animated number; falls back to the exact value when the document is hidden, since rAF does not run there |
+| `FormGuide.vue` | Last-five W/D/L pills |
+| `SquadFilters.vue` | Filter bar, pairs with `useSquadFilters` |
+| `LineupPitch.vue` | The lineup builder's pitch |
+| `ThemeSwatchEditor.vue` | One editable colour with picker, hex field, presets and contrast readout |
 
-**Desktop:** Inline nav buttons with icons for each section. Active link uses `variant: soft`, inactive uses `variant: ghost`.
+### Matchday
+| Component | Purpose |
+|---|---|
+| `matchday/Hud.vue` | Clock ring, animated score, transport controls, speed selector |
+| `matchday/Timeline.vue` | 0–90 strip; home events above the line, away below, clickable markers |
+| `matchday/EventFeed.vue` | Commentary, graded by `eventWeight()` so goals are hero rows and routine play recedes; filter chips carry live counts |
+| `matchday/LineupPanel.vue` | One side's live XI and bench with inline goal/card/sub/injury markers |
+| `matchday/StatsPanel.vue` | Opposing-bar statistics, territory share and a momentum sparkline |
+| `matchday/GoalOverlay.vue` | Full-screen GOAL! moment with confetti (dynamically imported) |
+| `MatchReport.vue` | **Revived.** Was orphaned dead code; now the full-time report — verdict, scorers, statistics, key moments and player of the match |
+| `MatchTacticsPanel.vue` | The pause / half-time / injury surface — see below |
+| `Sidebar.vue` | Top navigation with sliding active pill, club context strip, mute and theme toggles |
 
-**Mobile:** Hamburger toggle reveals a dropdown panel with the same links as a vertical stack. Panel animates in/out via Vue `<Transition>`.
+### `MatchTacticsPanel.vue`
+Rebuilt around three complaints: you could not tell which player was selected, disabled bench players never said why, and there was no confirm step or undo.
 
-**Active detection:** `isActiveLink(path)` — exact match for `/game`, prefix match for all sub-routes.
+- Selecting a player to come off applies a red-tinted card, a ring and an **OFF** chip.
+- Every unavailable bench player **states its reason** inline.
+- The footer reads **"Confirm N substitutions"**, distinct from "Discard and resume".
+- **Undo last** button, `Ctrl+Z`, and per-row removal.
+- Shows OVR and numeric stamina (the `skillLevel` prop was previously passed but never rendered), plus booked/sent-off/injured markers (`bookedIds` was also unused).
+- Formation selector with a shape preview and a plain-language diff ("4-5-1 → 4-3-3: −2 midfielders, +2 forwards").
+- Substitution allowance as five pips.
+- A "tired legs" suggestion using `effectiveSkill()`.
+
+Validation runs through **`substitutionError()` and `applyMidMatchChanges()` from `#shared/match-state`** — the exact functions `POST /api/match/changes` uses. Staged swaps fold in sequence, so the panel's greying-out and the server's rules cannot drift apart.
 
 ---
 
-### `components/MatchReport.vue`
-A `UModal` + `UCard` wrapper for displaying a match report. Accepts a `match` prop with `homeScore`, `awayScore`, and `events` array. **Currently not used** by any active route — it was the original match result display before the matchday playback was built.
+## Composables
+
+| Composable | Purpose |
+|---|---|
+| `useGameContext()` | Shared save state — game state, team, squad, fixtures, next opponent. State and team resolve in a **single** handler; two watched `useAsyncData` calls raced and left the topbar without a club |
+| `useAppToast()` | Toast wrappers that fix colour/icon pairing, add an undo action, and support a "chatty" tier suppressed unless enabled in Settings |
+| `useSfx()` | Web Audio sound engine — see below |
+| `useMatchStats()` | Derives shots, corners, cards, territory and momentum from the revealed event list. No new endpoint |
+| `useSquadFilters()` | Position tabs, search, availability filters and sort |
+
+### `useSfx()`
+Eight cues **synthesised in the browser** from oscillators and filtered noise — no assets to ship, no licensing, works offline. The AudioContext is created on the first cue, since browsers refuse to start one outside a user gesture.
+
+Real recordings can replace any cue without a code change: drop `public/sfx/{name}.mp3` and list the name in `public/sfx/manifest.json`. The manifest ships empty so the lookup never 404s.
 
 ---
 
-## Layouts
+## Utilities (`app/utils/`)
 
-### `layouts/default.vue`
-Wraps every page. Shows `<Sidebar>` only when the current route starts with `/game`. The main content area has responsive horizontal padding.
-
-```
-┌────────────────────────────────────┐
-│  Sidebar (if /game*)               │
-├────────────────────────────────────┤
-│  <main>  max-w-screen-2xl          │
-│    <slot />                        │
-└────────────────────────────────────┘
-```
+| File | Contents |
+|---|---|
+| `themes.ts` | Ramp generation, contrast scoring, token resolution. Re-exports `theme-definitions.ts` |
+| `theme-definitions.ts` | Theme data and the pre-paint script. **Dependency-free** so `nuxt.config.ts` can import it |
+| `format.ts` | Money, dates, initials, averages. Fixes a real inconsistency — the Dashboard formatted the bank balance in **USD** while Team and Transfers used **EUR** for the same number |
+| `table.ts` | `sortableHeader()` — the sortable-column block was copy-pasted **eleven times** — and `positionSortingFn()` |
+| `match-events.ts` | Event icons, labels, colours, weighting and filters |
+| `results.ts` | W/D/L computation and recent form |
 
 ---
 
-## Middleware
-
-### `middleware/require-active-game.global.ts`
-Runs on **every** route navigation. Guards `/game*` and `/matchday`:
-
-1. If the route does not start with `/game` or `/matchday`, passes through immediately.
-2. Calls `gameStore.initialize()` which hits `GET /api/game/state`.
-3. If `gameStore.userTeamId` is falsy (no active save), redirects to `/new-game`.
-
----
-
-## Pinia Stores
-
-Stores are defined in `frontend/app/stores/`. They are available globally via auto-imports.
+## Stores
 
 ### `stores/game.ts` — `useGameStore`
-Minimal save-state store used primarily by the route guard.
+Minimal save-state store used by the route guard. `initialize()` fetches `GET /api/game/state`.
 
-| State | Type | Description |
-|---|---|---|
-| `season` | string | Hardcoded `'2024/2025'` (not synced from DB) |
-| `year` | number | Hardcoded `2024` (not synced from DB) |
-| `userTeamId` | `number | null` | Set by `initialize()` from `GET /api/game/state` |
+### `stores/settings.ts` — `useSettingsStore`
+Player preferences: `themeId`, seed overrides, `motion`, `muted`, `volume`, per-category sound toggles, `playbackSpeed`, `confirmSelling`, `verboseToasts`.
 
-**Actions:**
-- `initialize()` — fetches game state and sets `userTeamId`. Called by the global middleware.
+Persisted to `localStorage` under `fpt:settings:v1` — the same shape the pre-paint script reads, so the two must stay in step. Applying a theme writes the resolved primitives onto `document.documentElement`.
 
-**Note:** `season` and `year` are placeholder values not yet driven by actual DB data.
+**Removed:** `stores/league.ts`, `stores/team.ts` and `stores/notifications.ts` were defined but referenced by nothing at runtime.
 
 ---
 
-### `stores/league.ts` — `useLeagueStore`
-Holds schedule and standings data.
+## Layouts and middleware
 
-| State | Type | Description |
-|---|---|---|
-| `schedule` | `Array<{ date: string; teams: string[] }>` | Match schedule (loosely typed) |
-| `standings` | `Array<{ team: string; points: number }>` | League table (loosely typed) |
+### `layouts/default.vue`
+Shell wrapper with layered background glows and film grain, a route-change progress bar, and `<Sidebar>` on `/game*` routes.
 
-**Actions:**
-- `fetchSchedule()` — `GET /api/schedule`
-- `fetchStandings(leagueId)` — `GET /api/standings?leagueId`
-
-**Note:** This store is defined but pages currently use `useFetch()` directly rather than going through the store. The store is effectively unused at runtime.
+### `middleware/require-active-game.global.ts`
+Unchanged. Guards `/game*` and `/matchday`, redirecting to `/new-game` when no save exists.
 
 ---
 
-### `stores/team.ts` — `useTeamStore`
-Holds the player's squad.
+## Accessibility
 
-| State | Type | Description |
-|---|---|---|
-| `squad` | `Player[]` | Full squad array |
-| `bankBalance` | number | Current funds |
-| `tactics` | string | Selected formation name |
-
-**Actions:**
-- `fetchTeam(teamId)` — `GET /api/team/:teamId`
-
-**Note:** Like `leagueStore`, pages use `useFetch` directly. This store is unused at runtime.
-
----
-
-### `stores/notifications.ts` — `useNotificationsStore`
-A simple auto-dismiss notification system.
-
-| State | Type | Description |
-|---|---|---|
-| `message` | string | Toast message |
-| `type` | `'info' | 'success' | 'warning' | 'error'` | Severity |
-| `visible` | boolean | Controls display |
-
-**Actions:**
-- `show(message, type)` — Sets message and schedules auto-hide after 3 seconds.
-
-**Note:** Pages use Nuxt UI's `useToast()` directly. This store is also unused at runtime, but could be the foundation for a custom notification component.
-
----
-
-## `app.config.ts`
-
-Configures Nuxt UI component token defaults. After the UI overhaul it contains only `ui.*` settings — `theme.colors` was removed and all CSS vars now live in `main.css`.
-
-| Key | Value | Effect |
-|---|---|---|
-| `ui.colors.primary` | `'emerald'` | Green accent throughout |
-| `ui.colors.neutral` | `'slate'` | Slate greys for neutral elements |
-| `ui.card.slots.root` | `'app-card-root'` | Applies `rounded-3xl overflow-hidden` to all `UCard` roots |
-| `ui.card.defaultVariants.variant` | `'subtle'` | All cards use `bg-elevated` background |
-| `ui.button.defaultVariants` | `color: 'primary', variant: 'solid'` | Default emerald solid buttons |
+- `:focus-visible` rings on every interactive element (there were none before).
+- `aria-live="polite"` on the score and the event feed; `aria-pressed` on every toggle chip; `aria-label` on icon-only buttons.
+- Motion respects `prefers-reduced-motion` **and** an independent in-app setting.
+- The theme editor blocks colours that fail WCAG AA against the page background, so a custom palette cannot be made unreadable.
 
 ---
 
 ## `nuxt.config.ts`
 
-```typescript
-modules: ["@nuxt/ui", "@pinia/nuxt"]
-css: ["@/assets/css/main.css"]
-compatibilityDate: '2025-08-07'
+```ts
+ssr: false
+modules: ["@nuxt/ui", "@pinia/nuxt", "@vueuse/nuxt"]
+app.head.htmlAttrs: { class: "dark" }     // Nuxt UI gates dark rules on .dark
+app.head.script: [ pre-paint theme snippet ]
+app.pageTransition / layoutTransition: "page-fade"
 ```
 
-No SSR-specific config; the app runs as a full SPA in development mode.
+## Dependencies added
+
+`@vueuse/core` + `@vueuse/nuxt`, `canvas-confetti` (dynamically imported), `colord` (+ a11y and mix plugins).

@@ -16,7 +16,11 @@ import { applyEvents, parseMatchState } from '#shared/match-state'
 /** Builds the `Team` shape the engine expects for one side of a match. */
 export async function buildTeam(teamId: number, tacticName: string | null | undefined, playerTeamId: number, lineupIds?: number[] | null): Promise<Team> {
   const [squad, teamRow] = await Promise.all([
-    db.query.players.findMany({ where: eq(players.teamId, teamId) }),
+    // Retired and released players stay in the table so `match_events` keeps
+    // resolving, but neither can be fielded.
+    db.query.players.findMany({
+      where: and(eq(players.teamId, teamId), eq(players.retired, 0), eq(players.freeAgent, 0)),
+    }),
     db.query.teams.findFirst({ where: eq(teams.id, teamId) }),
   ])
 

@@ -73,7 +73,9 @@ The server rewinds/fast-forwards its persisted state to `fromMinute` (discarding
 playing = true
 ```
 
-A `setInterval` fires every **1000 ms** (1 second = 1 in-game minute), calling `tickOnce()`.
+A `useIntervalFn` timer fires every **`1000 / speed` ms** (1 second = 1 in-game minute at 1×), calling `tickOnce()`.
+
+**Playback speed** is selectable at 1× / 2× / 4× from the HUD and persists as a preference. **Skip to half time / full time** jumps straight to the end of the currently-loaded segment, revealing every event at once — it does not simulate anything extra, so the result is identical to watching it out.
 
 ### 5. `tickOnce()` — the heart of the playback
 
@@ -282,9 +284,10 @@ Achieved with a `grid-cols-2 lg:grid-cols-3` grid, `order` utilities placing Hom
 | No home advantage | Home/away teams have identical stats bases. |
 | Resuming after a refresh mid-pause (not mid-half-time) replays the already-known segment quickly rather than re-pausing exactly where the manager left off | The server only durably remembers "paused at minute X" once an explicit sync happens (a substitution, or reaching a half/full-time boundary) — a bare pause with no changes isn't itself a sync point. A refresh in that narrow window resumes at the furthest minute with recorded events, not necessarily the exact minute the clock showed. |
 | Opponent tactics never change mid-match, only substitutions | The CPU reviews its bench (see [CPU Substitutions](../technical/match-engine.md#cpu-substitutions)) but never changes formation. |
-| An injured player looks identical to a benched or already-substituted one in the lineup panels | Both fall under `.app-player-out` (see [Player Status Colouring](#player-status-colouring)) — there's no separate colour for "off through injury" versus "never started"/"subbed off". The injury pause itself (the header badge, the tactics panel) is the only place it's called out explicitly. |
+| "Territory" in the stats panel is not real possession | The engine models no possession, so the panel shows each side's share of attacking events instead. It's labelled Territory rather than Possession for that reason. |
 
 **Previously listed here, now fixed:**
+- ~~An injured player looks identical to a benched or already-substituted one~~ — injured players now render as `.app-player-injured` (rose, italic) and carry a bandage marker, distinct from `.app-player-out`.
 - ~~All events are pre-computed before playback starts; pause does not affect server state~~ — the match is simulated in segments, and a pause with a substitution or tactic change genuinely alters the next segment. See [Simulation Lifecycle](#simulation-lifecycle).
 - ~~No half-time indication~~ — the clock stops itself at 45' and opens the tactics panel, framed as Half Time.
 - ~~Player lineup on screen ≠ actual simulated lineup~~ — the lineup panels now derive from live match state, updating in real time as substitutions happen.

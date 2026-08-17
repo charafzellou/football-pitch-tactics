@@ -1,7 +1,7 @@
 import { db } from '../../../../server/db'
 import { players, teams } from '../../../../server/db/schema'
 import { LINEUP_SIZE, parseLineup } from '#shared/lineup'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const teamId = Number(event.context.params?.id)
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
     return { success: true, lineup: null }
   }
 
-  const squad = await db.query.players.findMany({ where: eq(players.teamId, teamId) })
+  const squad = await db.query.players.findMany({ where: and(eq(players.teamId, teamId), eq(players.retired, 0)) })
   const squadIds = new Set(squad.map(player => player.id))
   const lineup = [...new Set(requested)].filter(id => squadIds.has(id))
 

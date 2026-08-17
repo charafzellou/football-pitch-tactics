@@ -57,6 +57,20 @@
       "when": 1786462618658,
       "tag": "0008_add_player_injuries",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786821107026,
+      "tag": "0008_public_exiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786824097633,
+      "tag": "0009_stale_starbolt",
+      "breakpoints": true
     }
   ]
 }

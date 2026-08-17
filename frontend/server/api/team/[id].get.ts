@@ -2,7 +2,7 @@ import { db } from '../../../server/db'
 import { players, teams } from '../../../server/db/schema'
 import { TACTICS } from '../../../server/core/tactics'
 import { DEFAULT_TACTIC_NAME, parseLineup, resolveLineup } from '#shared/lineup'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const teamId = Number(event.context.params?.id)
@@ -24,8 +24,11 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  // Retired players are kept so `match_events` keeps resolving, and released
+  // players keep pointing at the club that let them go, but neither is part of
+  // the squad any more.
   const squad = await db.query.players.findMany({
-    where: eq(players.teamId, teamId),
+    where: and(eq(players.teamId, teamId), eq(players.retired, 0), eq(players.freeAgent, 0)),
   })
 
   // CPU clubs never pick a tactic, so fall back to the default formation.

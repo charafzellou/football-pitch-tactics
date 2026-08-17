@@ -1,0 +1,4 @@
+{
+  "_comment": "Drop MP3s named after a cue in useSfx.ts (e.g. goal.mp3, whistle.mp3) into this folder and list the bare names here. Anything listed takes precedence over the synthesised version; anything missing falls back to synthesis.",
+  "samples": []
+}

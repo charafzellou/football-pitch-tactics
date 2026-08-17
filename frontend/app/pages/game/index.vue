@@ -1,149 +1,137 @@
 <script setup lang="ts">
-import { UBadge, UButton, UIcon } from '#components'
-import { ref, computed, h, onMounted, watch } from 'vue'
-import { useToast } from '#imports'
+/**
+ * Dashboard — club status, the next fixture, and the lineup builder.
+ *
+ * The pitch moved into `LineupPitch.vue`. Three things changed in behaviour:
+ * every tap used to fire a toast (three variants, on every click, which buried
+ * the ones that mattered); there was no way to auto-pick, clear or save an XI
+ * without playing; and the opponent was fetched in full but only its name was
+ * ever shown.
+ */
+import { computed, h, ref, watch } from 'vue'
+import { UBadge, UIcon } from '#components'
 import type { LineupSlot } from '#shared/lineup'
-import { LINEUP_SIZE, LINEUP_SLOT_ORDER, isAvailable, normalizePosition, parseLineup } from '#shared/lineup'
-
-type LineupPosition = LineupSlot
-
-interface SquadPlayer {
-  id: number
-  name: string
-  age: number
-  position: string
-  skillLevel: number
-  stamina: number
-  marketValue: number
-  teamId: number
-  injuredMatches?: number
-}
+import {
+  LINEUP_SIZE,
+  LINEUP_SLOT_ORDER,
+  autoSelectLineup,
+  isAvailable,
+  normalizePosition,
+  parseLineup,
+} from '#shared/lineup'
+import { averageOf, formatMoney, formatMoneyCompact, formatMatchDate } from '~/utils/format'
+import { sortableHeader, positionSortingFn } from '~/utils/table'
+import { recentForm } from '~/utils/results'
+import type { SquadPlayer, TeamPayload } from '~/composables/useGameContext'
 
 interface TacticOption {
   name: string
-  formation: Record<LineupPosition, number>
+  formation: Record<LineupSlot, number>
   modifiers: { attack: number; defence: number }
 }
 
-const POSITION_ORDER: LineupPosition[] = LINEUP_SLOT_ORDER
-const PITCH_ROW_ORDER: LineupPosition[] = ['FW', 'MF', 'DF', 'GK']
-const POSITION_LABELS: Record<LineupPosition, string> = {
-  GK: 'Goalkeepers',
-  DF: 'Defenders',
-  MF: 'Midfielders',
-  FW: 'Forwards',
+const PITCH_ROW_ORDER: LineupSlot[] = ['FW', 'MF', 'DF', 'GK']
+const POSITION_LABELS: Record<LineupSlot, string> = {
+  GK: 'Goalkeepers', DF: 'Defenders', MF: 'Midfielders', FW: 'Forwards',
 }
-const PITCH_ROW_LABELS: Record<LineupPosition, string> = {
-  FW: 'Forward Line',
-  MF: 'Midfield Line',
-  DF: 'Defensive Line',
-  GK: 'Goalkeeper',
+const POSITION_SINGULAR: Record<LineupSlot, string> = {
+  GK: 'goalkeeper', DF: 'defender', MF: 'midfielder', FW: 'forward',
+}
+const PITCH_ROW_LABELS: Record<LineupSlot, string> = {
+  FW: 'Forward Line', MF: 'Midfield Line', DF: 'Defensive Line', GK: 'Goalkeeper',
 }
 
-const toast = useToast()
+const toast = useAppToast()
+const sfx = useSfx()
+const { team, gameState, nextMatch, opponentId, isHomeFixture, refreshTeam } = useGameContext()
 
-function averageValue(values: number[]) {
-  if (!values.length)
-    return 0
+const { data: playedFixtures } = useAsyncData(
+  'dashboard-history',
+  () => $fetch<any[]>('/api/schedule?includePlayed=true'),
+  { default: () => [] as any[] },
+)
 
-  return Math.round(values.reduce((total, value) => total + value, 0) / values.length)
-}
+const { data: seasonStatus } = useAsyncData(
+  'dashboard-season',
+  () => $fetch<any>('/api/season/status'),
+)
 
-function getPlayerInitials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(part => part[0]?.toUpperCase() ?? '')
-    .join('')
-}
+/**
+ * Standings and the opponent hang off `team`, which resolves asynchronously.
+ * `useAsyncData`'s `watch` option proved unreliable for this — the dependency
+ * is already populated by the time the watcher is installed, so no change ever
+ * fires and the request never runs a second time. Plain watchers with
+ * `immediate` are explicit about when they run and always catch the transition.
+ */
+const standings = ref<any[]>([])
+watch(() => team.value?.leagueId, async (leagueId) => {
+  if (!leagueId) return
+  try {
+    standings.value = await $fetch<any[]>(`/api/standings?leagueId=${leagueId}`)
+  }
+  catch {
+    standings.value = []
+  }
+}, { immediate: true })
 
-const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
-const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
-  immediate: !!gameState.value?.playerTeamId,
-})
-const { data: standings, refresh: refreshStandings } = useFetch(() => `/api/standings?leagueId=${team.value?.leagueId ?? ''}`, {
-  immediate: !!team.value?.leagueId,
-})
-const { data: schedule, refresh: refreshSchedule } = useFetch('/api/schedule')
-const { data: tacticsList, refresh: refreshTactics } = useFetch('/api/tactics')
+const opponentTeam = ref<TeamPayload | null>(null)
+watch(opponentId, async (id) => {
+  if (!id) {
+    opponentTeam.value = null
+    return
+  }
+  try {
+    opponentTeam.value = await $fetch<TeamPayload>(`/api/team/${id}`)
+  }
+  catch {
+    opponentTeam.value = null
+  }
+}, { immediate: true })
 
-const nextMatch = computed(() => schedule.value?.[0])
-
-const leaguePosition = computed(() => {
-  if (!standings.value || !team.value) return null
-  // standings is an array sorted by points desc, goalDifference desc
-  const idx = (standings.value as any[]).findIndex(s => s.teamName === team.value!.name)
-  return idx === -1 ? null : idx + 1
-})
-
-// The opponent is whichever side of the fixture isn't the player's own team —
-// nextMatch.homeTeamId when the player is away, awayTeamId when the player is home.
-const opponentTeamId = computed(() => {
-  if (!nextMatch.value || !team.value)
-    return undefined
-
-  return nextMatch.value.homeTeamId === team.value.id ? nextMatch.value.awayTeamId : nextMatch.value.homeTeamId
-})
-
-const { data: opponentTeam, refresh: refreshOpponent } = useFetch(() => `/api/team/${opponentTeamId.value}`, {
-  immediate: !!opponentTeamId.value,
-})
+const { data: tacticsList } = useFetch('/api/tactics')
 
 const selectedTactic = ref('')
 const selectedPlayers = ref<number[]>([])
+const saving = ref(false)
+const formationConfirmOpen = ref(false)
+const pendingTactic = ref<string | null>(null)
+const draggedPlayer = ref<SquadPlayer | null>(null)
 
 const squadPlayers = computed(() => (team.value?.squad ?? []) as SquadPlayer[])
 const selectedPlayerIds = computed(() => new Set(selectedPlayers.value))
-const tacticOptions = computed(() => ((tacticsList.value ?? []) as TacticOption[]))
-const selectedTacticDetails = computed(() => {
-  return tacticOptions.value.find(tactic => tactic.name === selectedTactic.value) ?? tacticOptions.value[0] ?? null
-})
+const tacticOptions = computed(() => (tacticsList.value ?? []) as TacticOption[])
 
-const formationRequirements = computed<Record<LineupPosition, number>>(() => {
-  return selectedTacticDetails.value?.formation ?? { GK: 0, DF: 0, MF: 0, FW: 0 }
-})
+const selectedTacticDetails = computed(() =>
+  tacticOptions.value.find(tactic => tactic.name === selectedTactic.value) ?? tacticOptions.value[0] ?? null,
+)
 
-const selectedSquadPlayers = computed(() => {
-  return squadPlayers.value
+const formationRequirements = computed<Record<LineupSlot, number>>(() =>
+  selectedTacticDetails.value?.formation ?? { GK: 0, DF: 0, MF: 0, FW: 0 },
+)
+
+const selectedSquadPlayers = computed(() =>
+  squadPlayers.value
     .filter(player => selectedPlayerIds.value.has(player.id))
     .sort((left, right) => {
       const leftPosition = normalizePosition(left.position) ?? 'FW'
       const rightPosition = normalizePosition(right.position) ?? 'FW'
-      const positionDiff = POSITION_ORDER.indexOf(leftPosition) - POSITION_ORDER.indexOf(rightPosition)
+      const diff = LINEUP_SLOT_ORDER.indexOf(leftPosition) - LINEUP_SLOT_ORDER.indexOf(rightPosition)
+      return diff !== 0 ? diff : right.skillLevel - left.skillLevel
+    }),
+)
 
-      if (positionDiff !== 0)
-        return positionDiff
-
-      return right.skillLevel - left.skillLevel
-    })
-})
-
-const selectedPositionCounts = computed<Record<LineupPosition, number>>(() => {
+const selectedPositionCounts = computed<Record<LineupSlot, number>>(() => {
   const counts = { GK: 0, DF: 0, MF: 0, FW: 0 }
-
   for (const player of selectedSquadPlayers.value) {
     const position = normalizePosition(player.position)
-    if (position)
-      counts[position]++
+    if (position) counts[position]++
   }
-
   return counts
 })
 
-const lineupSections = computed(() => {
-  return POSITION_ORDER.map((position) => ({
-    position,
-    label: POSITION_LABELS[position],
-    required: formationRequirements.value[position],
-    selected: selectedPositionCounts.value[position],
-    players: selectedSquadPlayers.value.filter(player => normalizePosition(player.position) === position),
-  }))
-})
-
-const pitchRows = computed(() => {
-  return PITCH_ROW_ORDER.map((position) => {
-    const players = selectedSquadPlayers.value.filter(player => normalizePosition(player.position) === position)
+const pitchRows = computed(() =>
+  PITCH_ROW_ORDER.map((position) => {
+    const players = selectedSquadPlayers.value.filter(p => normalizePosition(p.position) === position)
     const required = formationRequirements.value[position]
 
     return {
@@ -151,627 +139,826 @@ const pitchRows = computed(() => {
       label: PITCH_ROW_LABELS[position],
       selected: players.length,
       required,
-      slots: Array.from({ length: Math.max(required, 1) }, (_, index) => ({
-        key: players[index] ? `player-${players[index].id}` : `empty-${position}-${index}`,
+      slots: Array.from({ length: Math.max(required, players.length, 1) }, (_, index) => ({
+        key: players[index] ? `player-${players[index]!.id}` : `empty-${position}-${index}`,
         player: players[index] ?? null,
         slotNumber: index + 1,
       })),
     }
-  })
-})
+  }),
+)
 
-const lineupIsComplete = computed(() => {
-  return POSITION_ORDER.every(position => selectedPositionCounts.value[position] === formationRequirements.value[position])
-    && selectedSquadPlayers.value.length === LINEUP_SIZE
-})
+const lineupIsComplete = computed(() =>
+  LINEUP_SLOT_ORDER.every(slot => selectedPositionCounts.value[slot] === formationRequirements.value[slot])
+  && selectedSquadPlayers.value.length === LINEUP_SIZE,
+)
 
-const lineupSummaryText = computed(() => {
-  return lineupSections.value
-    .map(section => `${section.label} ${section.selected}/${section.required}`)
-    .join(' | ')
+/** What is still wrong with the teamsheet, in plain language. */
+const readinessIssues = computed(() => {
+  const issues: string[] = []
+
+  if (!selectedTacticDetails.value) {
+    issues.push('Choose a formation')
+    return issues
+  }
+
+  for (const slot of LINEUP_SLOT_ORDER) {
+    const have = selectedPositionCounts.value[slot]
+    const need = formationRequirements.value[slot]
+    if (have === need) continue
+
+    const missing = Math.abs(need - have)
+    const noun = missing === 1 ? POSITION_SINGULAR[slot] : POSITION_LABELS[slot].toLowerCase()
+
+    issues.push(have < need
+      ? `Pick ${missing} more ${noun}`
+      : `Remove ${missing} ${noun}`)
+  }
+
+  const injured = selectedSquadPlayers.value.filter(p => !isAvailable(p))
+  if (injured.length)
+    issues.push(`${injured.length} selected player${injured.length === 1 ? ' is' : 's are'} injured`)
+
+  return issues
 })
 
 const lineupMetrics = computed(() => {
   const players = selectedSquadPlayers.value
+  const opponentSquad = (opponentTeam.value?.squad ?? []) as SquadPlayer[]
+  const opponentXi = opponentSquad.filter(p => opponentTeam.value?.startingXi?.includes(p.id))
+  const opponentSkill = opponentXi.length ? averageOf(opponentXi.map(p => p.skillLevel)) : null
 
   return [
     {
       label: 'Average Skill',
       icon: 'i-lucide-star',
-      value: players.length ? averageValue(players.map(player => player.skillLevel)).toString() : '—',
+      value: players.length ? String(averageOf(players.map(p => p.skillLevel))) : '—',
+      compare: opponentSkill !== null && players.length
+        ? averageOf(players.map(p => p.skillLevel)) - opponentSkill
+        : null,
     },
     {
       label: 'Average Stamina',
       icon: 'i-lucide-zap',
-      value: players.length ? `${averageValue(players.map(player => player.stamina))}%` : '—',
+      value: players.length ? `${averageOf(players.map(p => p.stamina))}%` : '—',
+      compare: null,
     },
     {
       label: 'Average Age',
       icon: 'i-lucide-user',
-      value: players.length ? averageValue(players.map(player => player.age)).toString() : '—',
+      value: players.length ? String(averageOf(players.map(p => p.age))) : '—',
+      compare: null,
     },
     {
       label: 'Total Value',
       icon: 'i-lucide-banknote',
-      value: players.length ? formatMoney(players.reduce((total, player) => total + player.marketValue, 0)) : '—',
+      value: players.length ? formatMoneyCompact(players.reduce((t, p) => t + p.marketValue, 0)) : '—',
+      compare: null,
     },
   ]
 })
 
-function getSelectionState(player: SquadPlayer) {
-  const isSelected = selectedPlayerIds.value.has(player.id)
-  const position = normalizePosition(player.position)
+const leaguePosition = computed(() => {
+  if (!standings.value?.length || !team.value) return null
+  const index = standings.value.findIndex(row => row.teamName === team.value!.name)
+  return index === -1 ? null : index + 1
+})
 
-  if (isSelected) {
-    return {
-      isSelected: true,
-      canSelect: true,
-      reason: null as string | null,
-    }
+const ownForm = computed(() =>
+  team.value ? recentForm(playedFixtures.value ?? [], team.value.id) : [],
+)
+
+const injuredCount = computed(() => squadPlayers.value.filter(p => !isAvailable(p)).length)
+
+/** Average skill of each side's projected XI, for the head-to-head bars. */
+const headToHead = computed(() => {
+  if (!team.value || !opponentTeam.value) return null
+
+  const ourXi = selectedSquadPlayers.value.length
+    ? selectedSquadPlayers.value
+    : autoSelectLineup(squadPlayers.value, selectedTacticDetails.value?.formation)
+
+  const theirSquad = (opponentTeam.value.squad ?? []) as SquadPlayer[]
+  const theirXi = theirSquad.filter(p => opponentTeam.value!.startingXi?.includes(p.id))
+
+  const ours = averageOf(ourXi.map(p => p.skillLevel))
+  const theirs = averageOf((theirXi.length ? theirXi : theirSquad.slice(0, 11)).map(p => p.skillLevel))
+  const total = ours + theirs
+
+  return {
+    ours,
+    theirs,
+    ourShare: total ? Math.round((ours / total) * 100) : 50,
+    theirPosition: standings.value?.findIndex(r => r.teamName === opponentTeam.value!.name) ?? -1,
   }
+})
+
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+
+function selectionState(player: SquadPlayer) {
+  if (selectedPlayerIds.value.has(player.id))
+    return { isSelected: true, canSelect: true, reason: null as string | null }
+
+  const position = normalizePosition(player.position)
 
   if (!isAvailable(player)) {
     const matches = player.injuredMatches ?? 0
-    return {
-      isSelected: false,
-      canSelect: false,
-      reason: `Injured (${matches} ${matches === 1 ? 'match' : 'matches'})`,
-    }
+    return { isSelected: false, canSelect: false, reason: `Injured for ${matches} more match${matches === 1 ? '' : 'es'}` }
   }
+  if (!position)
+    return { isSelected: false, canSelect: false, reason: 'Unknown position' }
+  if (!selectedTacticDetails.value)
+    return { isSelected: false, canSelect: false, reason: 'Select a formation first' }
+  if (selectedSquadPlayers.value.length >= LINEUP_SIZE)
+    return { isSelected: false, canSelect: false, reason: 'Teamsheet already full' }
+  if (selectedPositionCounts.value[position] >= formationRequirements.value[position])
+    return { isSelected: false, canSelect: false, reason: `${POSITION_LABELS[position]} slots are full` }
 
-  if (!position) {
-    return {
-      isSelected: false,
-      canSelect: false,
-      reason: 'Unknown position',
-    }
-  }
-
-  if (!selectedTacticDetails.value) {
-    return {
-      isSelected: false,
-      canSelect: false,
-      reason: 'Select a tactic first',
-    }
-  }
-
-  if (selectedSquadPlayers.value.length >= LINEUP_SIZE) {
-    return {
-      isSelected: false,
-      canSelect: false,
-      reason: 'Lineup full',
-    }
-  }
-
-  if (selectedPositionCounts.value[position] >= formationRequirements.value[position]) {
-    return {
-      isSelected: false,
-      canSelect: false,
-      reason: `${POSITION_LABELS[position]} full`,
-    }
-  }
-
-  return {
-    isSelected: false,
-    canSelect: true,
-    reason: null as string | null,
-  }
+  return { isSelected: false, canSelect: true, reason: null as string | null }
 }
 
+/**
+ * Selection feedback is now silent on success — the pitch marker appearing is
+ * the feedback. Only a *blocked* tap gets a toast, because that is the case
+ * where nothing visible would otherwise happen.
+ */
 function togglePlayerSelection(player: SquadPlayer) {
-  const selectionState = getSelectionState(player)
+  const state = selectionState(player)
 
-  if (selectionState.isSelected) {
+  if (state.isSelected) {
     selectedPlayers.value = selectedPlayers.value.filter(id => id !== player.id)
-    toast.add({
-      color: 'error',
-      icon: 'i-lucide-octagon-x',
-      title: 'Player removed',
-      description: `You removed ${player.name} from the lineup.`,
-      duration: 800,
-    })
+    sfx.play('deselect')
     return
   }
 
-  if (!selectionState.canSelect) {
-    toast.add({
-      color: 'warning',
-      icon: 'i-lucide-triangle-alert',
-      title: 'Selection blocked',
-      description: selectionState.reason ?? 'This player cannot be selected right now.',
-      duration: 1200,
+  if (!state.canSelect) {
+    sfx.play('error')
+    toast.warn({
+      title: 'Cannot select that player',
+      description: state.reason ?? 'This player cannot be selected right now.',
+      duration: 2500,
     })
     return
   }
 
   selectedPlayers.value = [...selectedPlayers.value, player.id]
-  toast.add({
-    color: 'success',
-    icon: 'i-lucide-check',
-    title: 'Player selected',
-    description: `${player.name} added to the lineup.`,
-    duration: 800,
+  sfx.play('select')
+}
+
+function autoPick() {
+  const xi = autoSelectLineup(squadPlayers.value, selectedTacticDetails.value?.formation)
+  const previous = [...selectedPlayers.value]
+  selectedPlayers.value = xi.map(player => player.id)
+  sfx.play('success')
+
+  toast.undoable({
+    title: 'Best available XI selected',
+    description: `${xi.length} players picked for ${selectedTactic.value}.`,
+    onUndo: () => { selectedPlayers.value = previous },
   })
 }
+
+function clearLineup() {
+  if (!selectedPlayers.value.length) return
+  const previous = [...selectedPlayers.value]
+  selectedPlayers.value = []
+  sfx.play('deselect')
+
+  toast.undoable({
+    title: 'Teamsheet cleared',
+    onUndo: () => { selectedPlayers.value = previous },
+  })
+}
+
+// ---- Drag and drop ----
+
+const dragSlot = computed(() =>
+  draggedPlayer.value ? normalizePosition(draggedPlayer.value.position) : null,
+)
+
+function onDragStart(player: SquadPlayer) {
+  draggedPlayer.value = player
+}
+
+function onDragEnd() {
+  draggedPlayer.value = null
+}
+
+function onPitchDrop({ playerId }: { playerId: number; slot: LineupSlot }) {
+  const player = squadPlayers.value.find(p => p.id === playerId)
+  draggedPlayer.value = null
+  if (!player || selectedPlayerIds.value.has(playerId)) return
+
+  const state = selectionState(player)
+  if (!state.canSelect) {
+    toast.warn({ title: 'Cannot select that player', description: state.reason ?? '', duration: 2500 })
+    return
+  }
+
+  selectedPlayers.value = [...selectedPlayers.value, playerId]
+  sfx.play('select')
+}
+
+// ---------------------------------------------------------------------------
+// Hydration and persistence
+// ---------------------------------------------------------------------------
 
 const lineupHydrated = ref(false)
 
 watch([tacticOptions, team], ([availableTactics, currentTeam]) => {
-  if (!availableTactics.length)
-    return
+  if (!availableTactics.length) return
 
   if (!selectedTactic.value) {
-    const preferredTactic = availableTactics.find(tactic => tactic.name === currentTeam?.tactics)?.name
+    selectedTactic.value = availableTactics.find(t => t.name === currentTeam?.tactics)?.name
       ?? availableTactics[0]?.name
       ?? ''
-
-    if (preferredTactic)
-      selectedTactic.value = preferredTactic
   }
 
   // Restore the XI saved on the last visit, once, so the builder picks up
   // where it left off instead of starting empty every time.
   if (currentTeam && !lineupHydrated.value) {
     lineupHydrated.value = true
-
-    const savedLineup = parseLineup(currentTeam.lineup)
-    if (savedLineup)
-      selectedPlayers.value = savedLineup
+    const saved = parseLineup(currentTeam.lineup)
+    if (saved) selectedPlayers.value = saved
   }
 }, { immediate: true })
 
-watch(selectedTactic, (newValue, oldValue) => {
-  if (!oldValue || newValue === oldValue || !selectedPlayers.value.length)
+/**
+ * A formation change invalidates the position limits, so the XI has to go.
+ * That used to happen instantly with only a toast to explain it; now it asks
+ * first, and only when there is actually something to lose.
+ */
+function requestTacticChange(name: string) {
+  if (name === selectedTactic.value) return
+
+  if (!selectedPlayers.value.length) {
+    selectedTactic.value = name
     return
+  }
 
+  pendingTactic.value = name
+  formationConfirmOpen.value = true
+}
+
+function confirmTacticChange() {
+  if (!pendingTactic.value) return
+
+  const previousPlayers = [...selectedPlayers.value]
+  const previousTactic = selectedTactic.value
+
+  selectedTactic.value = pendingTactic.value
   selectedPlayers.value = []
-  toast.add({
-    title: 'Lineup reset',
-    description: 'Changing formation clears the current lineup so the new position limits apply cleanly.',
-    color: 'info',
-    icon: 'i-lucide-refresh-cw',
+  formationConfirmOpen.value = false
+  pendingTactic.value = null
+
+  toast.undoable({
+    title: `Formation set to ${selectedTactic.value}`,
+    description: 'The previous teamsheet was cleared.',
+    onUndo: () => {
+      selectedTactic.value = previousTactic
+      selectedPlayers.value = previousPlayers
+    },
   })
-})
+}
 
-async function confirmTacticAndSimulate() {
-  if (!team.value) {
-    toast.add({
-      title: 'Team data not loaded',
-      description: 'Please refresh the page.',
-      color: 'error',
-    })
-  } else if (!selectedTacticDetails.value) {
-    toast.add({
-      title: 'No tactic selected',
-      description: 'Please select a tactic.',
-      color: 'error',
-    })
-  } else if (!lineupIsComplete.value) {
-    toast.add({
-      color: 'error',
-      icon: 'i-lucide-octagon-x',
-      title: 'Invalid lineup',
-      description: lineupSummaryText.value,
-    })
-  } else {
-    // Persist both, so Matchday and the engine field the XI that was picked
-    // here. Navigating on a failed save would silently field a different XI.
-    try {
-      await $fetch(`/api/team/${team.value.id}/tactics`, {
-        method: 'PUT',
-        body: { tactics: selectedTactic.value },
-      })
-      await $fetch(`/api/team/${team.value.id}/lineup`, {
-        method: 'PUT',
-        body: { lineup: selectedPlayers.value },
-      })
-    } catch {
-      toast.add({
-        color: 'error',
-        icon: 'i-lucide-octagon-x',
-        title: 'Could not save your team sheet',
-        description: 'The tactic and lineup were not saved. Please try again.',
-      })
-      return
-    }
+async function persistTeamSheet(): Promise<boolean> {
+  if (!team.value) return false
 
-    navigateTo('/matchday')
+  try {
+    await $fetch(`/api/team/${team.value.id}/tactics`, {
+      method: 'PUT',
+      body: { tactics: selectedTactic.value },
+    })
+    await $fetch(`/api/team/${team.value.id}/lineup`, {
+      method: 'PUT',
+      body: { lineup: selectedPlayers.value },
+    })
+    return true
+  }
+  catch (error) {
+    toast.fromRequestError(error, 'Could not save your team sheet')
+    return false
   }
 }
 
-function formatMoney(value: number) {
-  return value?.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) ?? ''
+async function saveOnly() {
+  if (!lineupIsComplete.value) {
+    toast.warn({ title: 'Teamsheet incomplete', description: readinessIssues.value.join(' · ') })
+    return
+  }
+
+  saving.value = true
+  const ok = await persistTeamSheet()
+  saving.value = false
+
+  if (ok) {
+    await refreshTeam()
+    toast.success({ title: 'Team sheet saved', description: `${selectedTactic.value} with ${LINEUP_SIZE} players.` })
+  }
 }
+
+async function goToMatchday() {
+  if (!team.value) {
+    toast.error({ title: 'Team data not loaded', description: 'Please refresh the page.' })
+    return
+  }
+  if (!lineupIsComplete.value) {
+    toast.warn({ title: 'Teamsheet incomplete', description: readinessIssues.value.join(' · ') })
+    return
+  }
+
+  saving.value = true
+  // Persist both, so Matchday and the engine field the XI that was picked
+  // here. Navigating on a failed save would silently field a different XI.
+  const ok = await persistTeamSheet()
+  saving.value = false
+
+  if (ok) navigateTo('/matchday')
+}
+
+// ---------------------------------------------------------------------------
+// Squad table
+// ---------------------------------------------------------------------------
+
+// Destructured so the template gets plain top-level refs; nested refs on a
+// returned object are not auto-unwrapped in templates.
+const {
+  slot: filterSlot,
+  search: filterSearch,
+  availableOnly: filterAvailableOnly,
+  freshOnly: filterFreshOnly,
+  sort: filterSort,
+  tabs: filterTabs,
+  filtered: filteredSquad,
+  isFiltered,
+  reset: resetFilters,
+} = useSquadFilters(squadPlayers)
 
 const lineupColumns = [
   {
-    accessorKey: 'name', id: 'name',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Name',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    }
-    ,
+    accessorKey: 'name',
+    id: 'name',
+    header: sortableHeader('Name'),
     cell: ({ row }: { row: any }) => {
       const player = row.original as SquadPlayer
       const isSelected = selectedPlayerIds.value.has(player.id)
-
       const injuredMatches = player.injuredMatches ?? 0
 
-      return h('div', { class: 'flex items-center gap-2' }, [
+      return h('div', {
+        class: 'flex items-center gap-2',
+        draggable: !injuredMatches && !isSelected,
+        onDragstart: (event: DragEvent) => {
+          event.dataTransfer?.setData('text/plain', String(player.id))
+          onDragStart(player)
+        },
+        onDragend: onDragEnd,
+      }, [
         h('span', {
           class: injuredMatches
             ? 'font-medium app-player-out'
-            : isSelected ? 'font-semibold text-primary-600' : 'font-medium',
+            : isSelected ? 'font-semibold' : 'font-medium cursor-grab',
+          style: isSelected ? 'color: var(--app-accent)' : undefined,
         }, player.name),
         injuredMatches
-          ? h(UBadge, {
-              label: `Injured · ${injuredMatches}`,
-              icon: 'i-lucide-bandage',
-              color: 'error',
-              variant: 'soft',
-              size: 'sm',
-            })
+          ? h(UBadge, { label: `Injured · ${injuredMatches}`, icon: 'i-lucide-bandage', color: 'error', variant: 'soft', size: 'sm' })
           : null,
         isSelected
-          ? h(UBadge, {
-              label: 'Selected',
-              color: 'success',
-              variant: 'soft',
-              size: 'sm',
-              class: 'app-selection-pill',
-            })
+          ? h('span', { class: 'app-selection-pill' }, 'Selected')
           : null,
       ])
-    }
-  },
-  {
-    accessorKey: 'age', id: 'age',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Age',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    }
-  },
-  {
-    accessorKey: 'position', id: 'position',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Position',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    }
-    ,
-    // custom sorting to enforce GK, DEF, MID, ATT ordering
-    sortingFn: (rowA: any, rowB: any, columnId: string) => {
-      const aRaw = rowA.getValue(columnId)
-      const bRaw = rowB.getValue(columnId)
-      const aNormalized = normalizePosition(String(aRaw ?? ''))
-      const bNormalized = normalizePosition(String(bRaw ?? ''))
-      const ia = aNormalized ? POSITION_ORDER.indexOf(aNormalized) : -1
-      const ib = bNormalized ? POSITION_ORDER.indexOf(bNormalized) : -1
-      // both known positions
-      if (ia !== -1 && ib !== -1) return ia === ib ? 0 : ia > ib ? 1 : -1
-      // one known, one unknown -> known comes first
-      if (ia !== -1) return -1
-      if (ib !== -1) return 1
-      // both unknown -> fallback to string compare
-      return String(aRaw ?? '').localeCompare(String(bRaw ?? ''))
-    }
-  },
-  {
-    accessorKey: 'skillLevel', id: 'skillLevel',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Skill Level',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    }
-  },
-  {
-    accessorKey: 'stamina', id: 'stamina',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Stamina',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
     },
-    // Fatigue carries between matches now, so a tired player is a real
-    // squad-rotation decision, not just a cosmetic number.
-    cell: ({ row }: { row: any }) => {
-      const stamina = row.original.stamina as number
-      const isTired = stamina < 60
-
-      return h('span', { class: `flex items-center gap-1.5 ${isTired ? 'text-amber-400' : ''}` }, [
-        isTired ? h(UIcon, { name: 'i-lucide-battery-warning', class: 'size-3.5' }) : null,
-        `${stamina}%`,
-      ])
-    },
+  },
+  { accessorKey: 'age', id: 'age', header: sortableHeader('Age') },
+  {
+    accessorKey: 'position',
+    id: 'position',
+    header: sortableHeader('Position'),
+    sortingFn: positionSortingFn,
+    cell: ({ row }: { row: any }) => h(resolveComponent('AppPositionBadge'), { position: row.original.position }),
+  },
+  {
+    accessorKey: 'skillLevel',
+    id: 'skillLevel',
+    header: sortableHeader('Skill'),
+    cell: ({ row }: { row: any }) =>
+      h(resolveComponent('AppStatBar'), { value: row.original.skillLevel ?? 0, showValue: true, class: 'min-w-28' }),
+  },
+  {
+    accessorKey: 'stamina',
+    id: 'stamina',
+    header: sortableHeader('Stamina'),
+    cell: ({ row }: { row: any }) =>
+      h(resolveComponent('AppStatBar'), {
+        value: row.original.stamina ?? 0,
+        showValue: true,
+        percent: true,
+        threshold: true,
+        class: 'min-w-28',
+      }),
   },
   {
     accessorKey: 'marketValue',
     id: 'marketValue',
-    header: ({ column }: { column: any }) => {
-      const isSorted = column.getIsSorted()
-      return h(UButton, {
-        color: 'neutral',
-        variant: 'ghost',
-        label: 'Market Value',
-        icon: isSorted
-          ? isSorted === 'asc'
-            ? 'i-lucide-arrow-up-narrow-wide'
-            : 'i-lucide-arrow-down-wide-narrow'
-          : 'i-lucide-arrow-up-down',
-        class: '-mx-2.5',
-        onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-      })
-    },
-    cell: ({ row }: { row: any }) => formatMoney(row.original.marketValue)
+    header: sortableHeader('Market Value'),
+    cell: ({ row }: { row: any }) => formatMoney(row.original.marketValue),
   },
   {
     id: 'actions',
     header: 'Actions',
     cell: ({ row }: { row: any }) => {
       const player = row.original as SquadPlayer
-      const selectionState = getSelectionState(player)
+      const state = selectionState(player)
 
-      return h(
-        UButton,
-        {
-          color: selectionState.isSelected ? 'success' : 'primary',
-          variant: selectionState.isSelected ? 'soft' : selectionState.canSelect ? 'solid' : 'outline',
-          size: 'xs',
-          disabled: !selectionState.isSelected && !selectionState.canSelect,
-          onClick: () => togglePlayerSelection(player),
-        },
-        {
-          default: () => {
-            if (selectionState.isSelected)
-              return 'Selected'
-
-            if (!selectionState.canSelect)
-              return 'Unavailable'
-
-            return 'Select'
-          },
-        }
-      )
-    }
-  }
+      return h(resolveComponent('UButton'), {
+        color: state.isSelected ? 'success' : 'primary',
+        variant: state.isSelected ? 'soft' : state.canSelect ? 'solid' : 'outline',
+        size: 'xs',
+        icon: state.isSelected ? 'i-lucide-check' : state.canSelect ? 'i-lucide-plus' : 'i-lucide-ban',
+        disabled: !state.isSelected && !state.canSelect,
+        title: state.reason ?? undefined,
+        label: state.isSelected ? 'Selected' : state.canSelect ? 'Select' : 'Unavailable',
+        onClick: () => togglePlayerSelection(player),
+      })
+    },
+  },
 ]
-
-onMounted(async () => {
-  await refreshGameState()
-  await refreshTeam()
-  await refreshSchedule()
-  await refreshStandings()
-  await refreshOpponent()
-  await refreshTactics()
-})
 </script>
 
 <template>
-
-  <div class="grid grid-cols-1 gap-4 sm:gap-6">
-    <h1 class="app-page-title mb-2">
-      Dashboard
-    </h1>
-    <div v-if="team" class="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in-up">
-      <UCard class="app-surface">
-        <template #header>
-          <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-chart-no-axes-combined" class="size-4 text-emerald-400" />
-            Club Status
-          </div>
-        </template>
-        <div class="space-y-3">
-          <div class="flex items-center justify-between rounded-xl px-4 py-3" style="background-color: var(--app-surface-muted)">
-            <div class="flex items-center gap-2">
-              <UIcon name="i-lucide-trophy" class="size-4 text-amber-400" />
-              <span class="text-sm" style="color: var(--app-text-muted)">League Position</span>
-            </div>
-            <strong class="text-lg font-bold">{{ leaguePosition ?? '—' }}</strong>
-          </div>
-          <div class="flex items-center justify-between rounded-xl px-4 py-3" style="background-color: var(--app-surface-muted)">
-            <div class="flex items-center gap-2">
-              <UIcon name="i-lucide-wallet" class="size-4 text-emerald-400" />
-              <span class="text-sm" style="color: var(--app-text-muted)">Bank Balance</span>
-            </div>
-            <strong class="text-lg font-bold">{{ new Intl.NumberFormat('en-US', {
-              style: 'currency', currency: 'USD'
-            }).format(team.bankBalance ?? 0) }}</strong>
-          </div>
-        </div>
-      </UCard>
-      <UCard v-if="nextMatch" class="app-surface">
-        <template #header>
-          <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-swords" class="size-4 text-rose-400" />
-            Next Match
-          </div>
-        </template>
-        <div class="space-y-3">
-          <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-shield-half" class="size-4" style="color: var(--app-text-muted)" />
-            <span class="text-sm" style="color: var(--app-text-muted)">vs</span>
-            <strong>{{ opponentTeam?.name ?? opponentTeamId }}</strong>
-          </div>
-          <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-calendar-clock" class="size-4" style="color: var(--app-text-muted)" />
-            <span class="text-sm" style="color: var(--app-text-muted)">Date</span>
-            <strong>{{ new Date(nextMatch.matchDate).toLocaleDateString() }}</strong>
-          </div>
-        </div>
-        <template #footer>
-          <UButton class="w-full sm:w-auto" label="Go to Matchday" icon="i-lucide-play" @click="confirmTacticAndSimulate" />
-        </template>
-      </UCard>
+  <div class="space-y-4 sm:space-y-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="app-page-title flex items-center gap-2">
+        <UIcon name="i-lucide-layout-dashboard" class="size-6" style="color: var(--app-accent)" />
+        Dashboard
+      </h1>
+      <div class="flex flex-wrap items-center gap-2">
+        <span v-if="seasonStatus?.totalRounds" class="app-chip">
+          <UIcon name="i-lucide-flag" class="size-3" />
+          Round {{ seasonStatus.round }} of {{ seasonStatus.totalRounds }}
+        </span>
+        <span v-if="gameState" class="app-chip">
+          <UIcon name="i-lucide-calendar-days" class="size-3" />
+          {{ formatMatchDate(gameState.currentDate) }} · Season {{ gameState.season }}
+        </span>
+      </div>
     </div>
 
+    <AppSkeleton v-if="!team" variant="card" />
 
-    <UCard>
-      <div class="grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
-        <div class="space-y-4">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <p class="app-kicker">Lineup Builder</p>
-              <h2 class="text-xl font-semibold" style="color: var(--app-text)">
-                {{ selectedSquadPlayers.length }}/11 selected
-              </h2>
-              <p class="app-muted-text text-sm">
-                {{ lineupSummaryText }}
+    <template v-else>
+      <!-- Club status + next fixture -->
+      <div class="grid animate-fade-in-up gap-4 md:grid-cols-2">
+        <UCard class="app-surface">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-chart-no-axes-combined" class="size-4" style="color: var(--app-accent)" />
+              Club Status
+            </div>
+          </template>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="app-metric-card">
+              <div class="mb-1 flex items-center gap-1.5">
+                <UIcon name="i-lucide-trophy" class="size-3.5" style="color: var(--app-gold)" />
+                <p class="app-kicker text-[10px]">League Position</p>
+              </div>
+              <p class="app-hero-number text-2xl">{{ leaguePosition ?? '—' }}</p>
+              <p
+                v-if="seasonStatus?.pointsBehindLeader !== null && seasonStatus?.pointsBehindLeader !== undefined"
+                class="mt-1 truncate text-[11px]"
+                :style="{ color: seasonStatus.pointsBehindLeader === 0 ? 'var(--app-accent)' : 'var(--app-text-muted)' }"
+              >
+                {{ seasonStatus.pointsBehindLeader === 0
+                  ? 'Top of the league'
+                  : `${seasonStatus.pointsBehindLeader} behind ${seasonStatus.leader?.teamName}` }}
               </p>
             </div>
-            <span
-              class="app-status-pill p-2"
-              :class="lineupIsComplete ? 'app-status-pill--success' : 'app-status-pill--warning'"
-            >
-              {{ lineupIsComplete ? 'Lineup ready' : 'Incomplete lineup' }}
-            </span>
+
+            <div class="app-metric-card">
+              <div class="mb-1 flex items-center gap-1.5">
+                <UIcon name="i-lucide-wallet" class="size-3.5" style="color: var(--app-accent)" />
+                <p class="app-kicker text-[10px]">Bank Balance</p>
+              </div>
+              <AppCountUp
+                :value="team.bankBalance ?? 0"
+                :format="formatMoneyCompact"
+                class="app-hero-number text-2xl"
+              />
+            </div>
+
+            <div class="app-metric-card">
+              <div class="mb-1 flex items-center gap-1.5">
+                <UIcon name="i-lucide-users" class="size-3.5" style="color: var(--app-text-muted)" />
+                <p class="app-kicker text-[10px]">Squad</p>
+              </div>
+              <p class="app-hero-number text-2xl">{{ team.squad.length }}</p>
+              <p v-if="injuredCount" class="mt-1 text-[11px]" style="color: var(--app-player-injured)">
+                {{ injuredCount }} injured
+              </p>
+            </div>
+
+            <div class="app-metric-card">
+              <div class="mb-1 flex items-center gap-1.5">
+                <UIcon name="i-lucide-activity" class="size-3.5" style="color: var(--app-text-muted)" />
+                <p class="app-kicker text-[10px]">Recent Form</p>
+              </div>
+              <FormGuide :form="ownForm" class="mt-1.5" />
+            </div>
+          </div>
+        </UCard>
+
+        <!-- Season over: there is no next fixture, so point at the rollover. -->
+        <UCard v-if="seasonStatus?.complete" class="app-elevated">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-trophy" class="size-4" style="color: var(--app-gold)" />
+              Season {{ seasonStatus.season }} complete
+            </div>
+          </template>
+
+          <div class="space-y-2 text-center">
+            <p class="app-hero-number text-3xl">
+              {{ seasonStatus.playerPosition ?? '—' }}<span class="text-lg" style="color: var(--app-text-muted)">
+                {{ seasonStatus.playerPosition === 1 ? 'st' : seasonStatus.playerPosition === 2 ? 'nd' : seasonStatus.playerPosition === 3 ? 'rd' : 'th' }}
+              </span>
+            </p>
+            <p class="app-muted-text text-sm">
+              Final position on {{ seasonStatus.playerPoints ?? 0 }} points.
+            </p>
           </div>
 
-          <div class="relative overflow-hidden rounded-4xl border border-emerald-900/20 bg-linear-to-b from-emerald-300/20 via-emerald-700 to-slate-950 px-4 py-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-6 lg:px-8">
-            <div class="absolute inset-4 rounded-[1.75rem] border border-white/20"></div>
-            <div class="absolute inset-x-4 top-1/2 border-t border-white/20"></div>
-            <div class="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 sm:h-28 sm:w-28"></div>
-            <div class="absolute left-1/2 top-4 h-12 w-28 -translate-x-1/2 rounded-b-[1.5rem] border border-t-0 border-white/20 sm:w-36"></div>
-            <div class="absolute left-1/2 bottom-4 h-12 w-28 -translate-x-1/2 rounded-t-[1.5rem] border border-b-0 border-white/20 sm:w-36"></div>
+          <template #footer>
+            <UButton
+              to="/game/season-end"
+              class="app-glow w-full justify-center"
+              size="lg"
+              label="End of season"
+              icon="i-lucide-trophy"
+            />
+          </template>
+        </UCard>
 
-            <div class="relative z-10 flex min-h-120 flex-col justify-between gap-5">
+        <!-- Next match, with a real head-to-head -->
+        <UCard v-else-if="nextMatch" class="app-elevated">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-swords" class="size-4" style="color: var(--app-player-injured)" />
+              Next Match
+              <span class="app-chip ml-auto">{{ isHomeFixture ? 'Home' : 'Away' }}</span>
+            </div>
+          </template>
+
+          <div class="space-y-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="app-kicker text-[10px]">Opponent</p>
+                <p class="truncate text-lg font-bold" style="color: var(--app-text)">
+                  {{ opponentTeam?.name ?? '…' }}
+                </p>
+                <p class="app-muted-text text-xs">{{ formatMatchDate(nextMatch.matchDate) }}</p>
+              </div>
               <div
-                v-for="row in pitchRows"
-                :key="row.position"
-                class="space-y-3"
+                v-if="headToHead && headToHead.theirPosition >= 0"
+                class="app-metric-card shrink-0 px-3 py-2 text-center"
               >
-                <div class="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.18em] text-white/70">
-                  <span>{{ row.label }}</span>
-                  <span>{{ row.selected }}/{{ row.required }}</span>
-                </div>
+                <p class="app-kicker text-[9px]">Their rank</p>
+                <p class="text-lg font-bold" style="color: var(--app-text)">{{ headToHead.theirPosition + 1 }}</p>
+              </div>
+            </div>
 
-                <div class="flex flex-wrap items-stretch justify-center gap-3 sm:gap-4">
-                  <template v-for="slot in row.slots" :key="slot.key">
-                    <button
-                      v-if="slot.player"
-                      type="button"
-                      class="flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border border-white/15 bg-white/12 px-3 py-3 text-center shadow-lg shadow-emerald-950/20 backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/18"
-                      @click="togglePlayerSelection(slot.player)"
-                    >
-                      <span class="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white/16 text-sm font-bold text-white/95">
-                        {{ getPlayerInitials(slot.player.name) }}
-                      </span>
-                      <span class="text-sm font-semibold leading-tight text-white">
-                        {{ slot.player.name }}
-                      </span>
-                      <span class="mt-1 text-[11px] text-emerald-100/85">
-                        OVR {{ slot.player.skillLevel }} • STA {{ slot.player.stamina }}
-                      </span>
-                    </button>
+            <div v-if="headToHead">
+              <div class="mb-1.5 flex items-center justify-between text-xs">
+                <span class="font-bold tabular-nums" style="color: var(--app-accent)">{{ headToHead.ours }}</span>
+                <span class="app-kicker text-[10px]">Average XI skill</span>
+                <span class="font-bold tabular-nums" style="color: var(--app-pos-gk)">{{ headToHead.theirs }}</span>
+              </div>
+              <div class="flex h-2 overflow-hidden rounded-full" style="background-color: var(--app-surface-muted)">
+                <div
+                  class="transition-all duration-700"
+                  :style="{ width: `${headToHead.ourShare}%`, backgroundColor: 'var(--app-accent)' }"
+                />
+                <div class="flex-1" style="background-color: var(--app-pos-gk)" />
+              </div>
+              <p class="app-muted-text mt-1.5 text-[11px]">
+                {{ headToHead.ours > headToHead.theirs
+                  ? 'You field the stronger side on paper.'
+                  : headToHead.ours < headToHead.theirs
+                    ? 'They field the stronger side on paper.'
+                    : 'Evenly matched on paper.' }}
+              </p>
+            </div>
+          </div>
 
-                    <div
-                      v-else
-                      class="flex min-h-31 w-35 flex-col items-center justify-center rounded-[1.35rem] border border-dashed border-white/20 bg-black/10 px-3 py-3 text-center shadow-inner shadow-emerald-950/30"
-                    >
-                      <UIcon name="i-lucide-user-plus" class="mb-1 size-5 text-white/35" />
-                      <span class="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">{{ row.position }}</span>
-                      <span class="mt-1 text-xs font-medium text-white/40">Slot {{ slot.slotNumber }}</span>
-                    </div>
-                  </template>
+          <template #footer>
+            <div class="space-y-2">
+              <UButton
+                class="w-full justify-center"
+                :class="lineupIsComplete && 'app-glow'"
+                size="lg"
+                label="Go to Matchday"
+                icon="i-lucide-play"
+                :loading="saving"
+                :disabled="!lineupIsComplete"
+                @click="goToMatchday"
+              />
+              <ul v-if="readinessIssues.length" class="space-y-0.5">
+                <li
+                  v-for="issue in readinessIssues"
+                  :key="issue"
+                  class="flex items-center gap-1.5 text-[11px]"
+                  style="color: var(--app-player-booked)"
+                >
+                  <UIcon name="i-lucide-circle-alert" class="size-3 shrink-0" />
+                  {{ issue }}
+                </li>
+              </ul>
+              <p v-else class="flex items-center gap-1.5 text-[11px]" style="color: var(--app-accent)">
+                <UIcon name="i-lucide-circle-check" class="size-3 shrink-0" />
+                Team sheet ready
+              </p>
+            </div>
+          </template>
+        </UCard>
+      </div>
+
+      <!-- Lineup builder -->
+      <UCard class="app-surface">
+        <div class="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="app-kicker">Lineup Builder</p>
+                <h2 class="text-xl font-semibold" style="color: var(--app-text)">
+                  {{ selectedSquadPlayers.length }}/{{ LINEUP_SIZE }} selected
+                </h2>
+              </div>
+              <span
+                class="app-status-pill"
+                :class="lineupIsComplete ? 'app-status-pill--success' : 'app-status-pill--warning'"
+              >
+                {{ lineupIsComplete ? 'Lineup ready' : 'Incomplete lineup' }}
+              </span>
+            </div>
+
+            <LineupPitch
+              :rows="pitchRows"
+              :drag-slot="dragSlot"
+              @remove="togglePlayerSelection"
+              @drop="onPitchDrop"
+              @drag-start="onDragStart"
+              @drag-end="onDragEnd"
+            />
+          </div>
+
+          <div class="space-y-4">
+            <div class="app-surface-subtle space-y-3 p-4">
+              <p class="app-kicker">Formation</p>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  v-for="tactic in tacticOptions"
+                  :key="tactic.name"
+                  type="button"
+                  class="rounded-xl border p-2.5 text-left transition hover:-translate-y-0.5"
+                  :style="selectedTactic === tactic.name
+                    ? { borderColor: 'var(--app-accent)', backgroundColor: 'var(--app-accent-soft)' }
+                    : { borderColor: 'var(--app-surface-border)', backgroundColor: 'var(--app-surface-muted)' }"
+                  :aria-pressed="selectedTactic === tactic.name"
+                  @click="requestTacticChange(tactic.name)"
+                >
+                  <p
+                    class="text-sm font-bold"
+                    :style="{ color: selectedTactic === tactic.name ? 'var(--app-accent)' : 'var(--app-text)' }"
+                  >{{ tactic.name }}</p>
+                  <p class="app-muted-text text-[10px]">
+                    {{ tactic.formation.DF }}-{{ tactic.formation.MF }}-{{ tactic.formation.FW }}
+                  </p>
+                </button>
+              </div>
+              <p class="app-muted-text text-xs">Player selection is limited by this formation.</p>
+            </div>
+
+            <div class="app-surface-subtle space-y-2 p-4">
+              <p class="app-kicker">Teamsheet</p>
+              <UButton
+                block
+                label="Auto-pick best XI"
+                icon="i-lucide-wand-sparkles"
+                color="primary"
+                variant="soft"
+                @click="autoPick"
+              />
+              <UButton
+                block
+                label="Save without playing"
+                icon="i-lucide-save"
+                color="neutral"
+                variant="soft"
+                :loading="saving"
+                :disabled="!lineupIsComplete"
+                @click="saveOnly"
+              />
+              <UButton
+                block
+                label="Clear teamsheet"
+                icon="i-lucide-eraser"
+                color="neutral"
+                variant="ghost"
+                :disabled="!selectedPlayers.length"
+                @click="clearLineup"
+              />
+            </div>
+
+            <div class="app-surface-subtle space-y-3 p-4">
+              <p class="app-kicker">Selected Squad Metrics</p>
+              <div class="grid gap-2.5 sm:grid-cols-2">
+                <div v-for="metric in lineupMetrics" :key="metric.label" class="app-metric-card">
+                  <div class="mb-1 flex items-center gap-1.5">
+                    <UIcon :name="metric.icon" class="size-3.5" style="color: var(--app-text-muted)" />
+                    <p class="app-kicker text-[10px]">{{ metric.label }}</p>
+                  </div>
+                  <p class="text-xl font-semibold" style="color: var(--app-text)">{{ metric.value }}</p>
+                  <p
+                    v-if="metric.compare !== null"
+                    class="mt-0.5 text-[11px] font-semibold"
+                    :style="{ color: metric.compare >= 0 ? 'var(--app-accent)' : 'var(--app-player-sent-off)' }"
+                  >
+                    {{ metric.compare >= 0 ? '+' : '' }}{{ metric.compare }} vs opponent
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </UCard>
 
-        <div class="app-surface-subtle space-y-4 p-5">
-          <div>
-            <p class="app-kicker">Formation</p>
-            <select v-model="selectedTactic" class="app-control">
-              <option value="" disabled>Select tactic</option>
-          <option v-for="t in tacticsList" :key="t.name" :value="t.name">
-            {{ t.name }} ({{ t.formation.DF }}-{{ t.formation.MF }}-{{ t.formation.FW }})
-          </option>
-            </select>
-            <p class="app-muted-text mt-2 text-xs">Player selection is limited by this formation.</p>
-          </div>
-
-          <div>
-            <p class="app-kicker">Selected Squad Metrics</p>
-            <div class="mt-3 grid gap-3 sm:grid-cols-2">
-              <div
-                v-for="metric in lineupMetrics"
-                :key="metric.label"
-                class="app-metric-card"
-              >
-                <div class="mb-1 flex items-center gap-1.5">
-                  <UIcon :name="metric.icon" class="size-3.5" style="color: var(--app-text-muted)" />
-                  <p class="app-kicker text-[10px]">{{ metric.label }}</p>
-                </div>
-                <p class="mt-1 text-xl font-semibold" style="color: var(--app-text)">{{ metric.value }}</p>
-              </div>
+      <!-- Squad -->
+      <UCard class="app-surface">
+        <template #header>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-users" class="size-4" style="color: var(--app-accent)" />
+              {{ team.name }} Squad
             </div>
           </div>
+        </template>
+
+        <div class="space-y-3">
+          <SquadFilters
+            v-model:slot="filterSlot"
+            v-model:search="filterSearch"
+            v-model:available-only="filterAvailableOnly"
+            v-model:fresh-only="filterFreshOnly"
+            v-model:sort="filterSort"
+            :tabs="filterTabs"
+            :result-count="filteredSquad.length"
+            :is-filtered="isFiltered"
+            show-availability
+            @reset="resetFilters"
+          />
+
+          <p class="app-muted-text text-sm">
+            Drag a player onto the pitch, or use Select. Tap a marker on the pitch to remove them.
+          </p>
+
+          <div v-if="filteredSquad.length" class="app-table-shell">
+            <div class="min-w-max">
+              <UTable :data="filteredSquad" :columns="lineupColumns" />
+            </div>
+          </div>
+
+          <AppEmptyState
+            v-else
+            compact
+            icon="i-lucide-search-x"
+            title="No players match those filters"
+            action-label="Clear filters"
+            @action="resetFilters"
+          />
         </div>
-      </div>
-    </UCard>
-    <UCard class="app-surface">
-      <h2 class="mb-2 text-(--app-text) text-lg">
-        {{ team?.name }} Squad
-      </h2>
-      <p class="app-muted-text mb-4 text-sm">
-        Selected players are highlighted, slots lock automatically once a formation role is full, and you can click any player marker on the pitch to remove them.
-      </p>
-      <div class="overflow-x-auto">
-        <div class="min-w-max">
-          <UTable v-if="team" :data="team.squad" :columns="lineupColumns" />
-        </div>
-      </div>
-    </UCard>
+      </UCard>
+    </template>
+
+    <AppConfirmModal
+      :open="formationConfirmOpen"
+      tone="warning"
+      icon="i-lucide-refresh-cw"
+      title="Change formation?"
+      :description="`Switching to ${pendingTactic} changes how many players each position needs.`"
+      confirm-label="Change formation"
+      confirm-icon="i-lucide-check"
+      @confirm="confirmTacticChange"
+      @cancel="formationConfirmOpen = false; pendingTactic = null"
+    >
+      <template #consequences>
+        <p style="color: var(--app-text-soft)">
+          Your current teamsheet of
+          <strong style="color: var(--app-text)">{{ selectedPlayers.length }} players</strong>
+          will be cleared so the new position limits apply cleanly.
+        </p>
+        <p class="app-muted-text mt-1 text-xs">You can undo this straight afterwards.</p>
+      </template>
+    </AppConfirmModal>
   </div>
 </template>

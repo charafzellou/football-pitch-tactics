@@ -1,80 +1,208 @@
 <script setup lang="ts">
-import { onMounted, computed, h } from 'vue'
-import { UIcon } from '#components'
+/**
+ * League table.
+ *
+ * The player's own row is highlighted and sticky — previously it was
+ * indistinguishable from the other nineteen. Zones are banded (title, Europe,
+ * relegation) with a legend, and each club carries its recent form.
+ */
+import { computed, ref } from 'vue'
+import { recentForm } from '~/utils/results'
 
-const { data: gameState, refresh: refreshGameState } = useFetch('/api/game/state')
-const { data: team, refresh: refreshTeam } = useFetch(() => `/api/team/${gameState.value?.playerTeamId}`, {
-  immediate: !!gameState.value?.playerTeamId,
-})
-
-const leagueId = computed(() => team.value?.leagueId)
-const { data: standings, refresh: refreshStandings } = useFetch<{ [key: string]: any }[]>(
-  () => leagueId.value ? `/api/standings?leagueId=${leagueId.value}` : '',
-  {
-    immediate: false,
-  }
-)
-
-watch(leagueId, (val) => {
-  if (val) refreshStandings()
-})
-
-onMounted(async () => {
-  await refreshGameState()
-  await refreshTeam()
-  await refreshStandings()
-})
-
-const rankedStandings = computed(() =>
-  (standings.value ?? []).map((row, i) => ({ ...row, rank: i + 1 }))
-)
-
-const medalColors: Record<number, string> = {
-  1: 'text-amber-400',
-  2: 'text-slate-300',
-  3: 'text-amber-600',
+interface StandingRow {
+  teamName: string
+  played: number
+  wins: number
+  draws: number
+  losses: number
+  goalsFor: number
+  goalsAgainst: number
+  goalDifference: number
+  points: number
 }
 
-const columns = [
-  {
-    id: 'rank',
-    header: '#',
-    cell: ({ row }: { row: any }) => {
-      const rank: number = row.original.rank
-      const color = medalColors[rank]
-      if (color) {
-        return h('div', { class: `flex items-center gap-1 font-bold ${color}` }, [
-          h(UIcon, { name: 'i-lucide-medal', class: 'size-3.5' }),
-          h('span', {}, String(rank)),
-        ])
-      }
-      return h('span', { style: 'color: var(--app-text-muted)' }, String(rank))
-    },
-  },
-  { accessorKey: 'teamName', header: 'Team', id: 'teamName' },
-  { accessorKey: 'played', header: 'P', id: 'played' },
-  { accessorKey: 'wins', header: 'W', id: 'wins' },
-  { accessorKey: 'draws', header: 'D', id: 'draws' },
-  { accessorKey: 'losses', header: 'L', id: 'losses' },
-  { accessorKey: 'goalsFor', header: 'GF', id: 'goalsFor' },
-  { accessorKey: 'goalsAgainst', header: 'GA', id: 'goalsAgainst' },
-  { accessorKey: 'goalDifference', header: 'GD', id: 'goalDifference' },
-  { accessorKey: 'points', header: 'Pts', id: 'points' },
-]
+const { team } = useGameContext()
+
+const standings = ref<StandingRow[]>([])
+const loading = ref(true)
+
+watch(() => team.value?.leagueId, async (leagueId) => {
+  if (!leagueId) return
+  loading.value = true
+  try {
+    standings.value = await $fetch<StandingRow[]>(`/api/standings?leagueId=${leagueId}`)
+  }
+  catch {
+    standings.value = []
+  }
+  finally {
+    loading.value = false
+  }
+}, { immediate: true })
+
+const { data: fixtures } = useAsyncData(
+  'standings-fixtures',
+  () => $fetch<any[]>('/api/schedule?includePlayed=true'),
+  { default: () => [] as any[] },
+)
+
+const teamIds = ref<Record<string, number>>({})
+watch(() => team.value?.leagueId, async (leagueId) => {
+  if (!leagueId) return
+  try {
+    const teams = await $fetch<{ id: number; name: string }[]>(`/api/teams?leagueId=${leagueId}`)
+    teamIds.value = Object.fromEntries(teams.map(t => [t.name, t.id]))
+  }
+  catch {
+    teamIds.value = {}
+  }
+}, { immediate: true })
+
+const leader = computed(() => standings.value[0]?.points ?? 0)
+
+/**
+ * Zone banding. The seeded leagues are 20 clubs, so the usual shape applies:
+ * champion, Champions League places, then the bottom three going down.
+ */
+function zoneOf(rank: number, total: number): 'title' | 'europe' | 'relegation' | null {
+  if (rank === 1) return 'title'
+  if (rank <= 4) return 'europe'
+  if (rank > total - 3) return 'relegation'
+  return null
+}
+
+const ZONE_CLASS: Record<string, string> = {
+  title: 'app-zone-promo',
+  europe: 'app-zone-europe',
+  relegation: 'app-zone-relegation',
+}
+
+const rows = computed(() =>
+  standings.value.map((row, index) => {
+    const rank = index + 1
+    const id = teamIds.value[row.teamName]
+
+    return {
+      ...row,
+      rank,
+      zone: zoneOf(rank, standings.value.length),
+      isOwn: row.teamName === team.value?.name,
+      behind: leader.value - row.points,
+      form: id ? recentForm(fixtures.value ?? [], id) : [],
+    }
+  }),
+)
+
+const ownRank = computed(() => rows.value.find(r => r.isOwn)?.rank ?? null)
+
+const medalColor: Record<number, string> = {
+  1: 'var(--app-gold)',
+  2: '#cbd5e1',
+  3: '#b45309',
+}
 </script>
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <div class="flex items-center gap-2">
-      <UIcon name="i-lucide-trophy" class="size-6 text-amber-400" />
-      <h1 class="app-page-title">
-        League Standings
-      </h1>
+    <div class="flex flex-wrap items-center gap-3">
+      <UIcon name="i-lucide-trophy" class="size-6" style="color: var(--app-gold)" />
+      <h1 class="app-page-title">League Standings</h1>
+      <span v-if="ownRank" class="app-chip app-chip--success ml-auto">
+        You are {{ ownRank }}{{ ownRank === 1 ? 'st' : ownRank === 2 ? 'nd' : ownRank === 3 ? 'rd' : 'th' }}
+      </span>
     </div>
-    <div class="app-table-shell">
-      <div class="min-w-max">
-        <UTable :data="rankedStandings" :columns="columns" />
-      </div>
+
+    <!-- Legend -->
+    <div class="flex flex-wrap items-center gap-4 text-[11px]" style="color: var(--app-text-muted)">
+      <span class="flex items-center gap-1.5">
+        <span class="h-3 w-1 rounded-full" style="background-color: var(--color-brand-400)" /> Champion
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="h-3 w-1 rounded-full" style="background-color: var(--app-pos-gk)" /> European places
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="h-3 w-1 rounded-full" style="background-color: var(--app-player-sent-off)" /> Relegation
+      </span>
+    </div>
+
+    <AppSkeleton v-if="loading" variant="table" :rows="8" />
+
+    <AppEmptyState
+      v-else-if="!rows.length"
+      icon="i-lucide-table"
+      title="No standings yet"
+      description="They appear once matches have been played."
+    />
+
+    <div v-else class="app-table-shell">
+      <table class="w-full min-w-max border-collapse text-sm">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--app-surface-border)">
+            <th class="app-kicker px-3 py-2.5 text-left text-[10px]">#</th>
+            <th class="app-kicker px-3 py-2.5 text-left text-[10px]">Club</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">P</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">W</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">D</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">L</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">GF</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">GA</th>
+            <th class="app-kicker px-2 py-2.5 text-center text-[10px]">GD</th>
+            <th class="app-kicker px-3 py-2.5 text-center text-[10px]">Pts</th>
+            <th class="app-kicker px-3 py-2.5 text-left text-[10px]">Form</th>
+            <th class="app-kicker px-3 py-2.5 text-center text-[10px]">Behind</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(row, index) in rows"
+            :key="row.teamName"
+            class="animate-fade-in-up transition-colors"
+            :class="[row.zone ? ZONE_CLASS[row.zone] : '', row.isOwn && 'app-row-highlight']"
+            :style="`animation-delay: ${Math.min(index, 15) * 0.025}s; border-bottom: 1px solid var(--app-surface-border)`"
+          >
+            <td class="px-3 py-2.5">
+              <span class="flex items-center gap-1.5 font-bold tabular-nums">
+                <UIcon
+                  v-if="row.rank <= 3"
+                  name="i-lucide-medal"
+                  class="size-3.5"
+                  :style="{ color: medalColor[row.rank] }"
+                />
+                <span :style="row.rank === 1 ? 'color: var(--app-gold)' : 'color: var(--app-text-muted)'">
+                  {{ row.rank }}
+                </span>
+              </span>
+            </td>
+            <td class="px-3 py-2.5">
+              <span
+                class="font-semibold"
+                :class="row.rank === 1 && 'app-gold-text'"
+                :style="row.isOwn ? 'color: var(--app-accent)' : row.rank === 1 ? undefined : 'color: var(--app-text)'"
+              >{{ row.teamName }}</span>
+              <span v-if="row.isOwn" class="app-selection-pill ml-2">You</span>
+            </td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-muted)">{{ row.played }}</td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-soft)">{{ row.wins }}</td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-soft)">{{ row.draws }}</td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-soft)">{{ row.losses }}</td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-muted)">{{ row.goalsFor }}</td>
+            <td class="px-2 py-2.5 text-center tabular-nums" style="color: var(--app-text-muted)">{{ row.goalsAgainst }}</td>
+            <td
+              class="px-2 py-2.5 text-center font-medium tabular-nums"
+              :style="{ color: row.goalDifference > 0 ? 'var(--app-accent)' : row.goalDifference < 0 ? 'var(--app-player-sent-off)' : 'var(--app-text-muted)' }"
+            >{{ row.goalDifference > 0 ? '+' : '' }}{{ row.goalDifference }}</td>
+            <td class="px-3 py-2.5 text-center text-base font-black tabular-nums" style="color: var(--app-text)">
+              {{ row.points }}
+            </td>
+            <td class="px-3 py-2.5">
+              <FormGuide :form="row.form" size="xs" empty-label="—" />
+            </td>
+            <td class="px-3 py-2.5 text-center tabular-nums" style="color: var(--app-text-muted)">
+              {{ row.behind === 0 ? '—' : `-${row.behind}` }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
