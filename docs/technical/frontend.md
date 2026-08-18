@@ -34,7 +34,7 @@ New save wizard: country → league → club.
 ### `/game` — `pages/game/index.vue`
 Dashboard: club status, next fixture, and the lineup builder.
 
-**Club Status** — league position, animated bank balance, squad size with injury count, and a last-five **form guide**.
+**Club Status** — league position, animated bank balance, squad size with injury count, a last-five **form guide**, and **board / supporter confidence** meters. The card footer states the board's target in plain language and escalates a warning as confidence falls ("Your position is under review — 3 of 5 matchdays without confidence"). Both meters and the news trail behind them come from `GET /api/board`; before it existed they were written every matchday and displayed nowhere, so the pressure system was invisible until it ended the save.
 
 **Next Match** — a real head-to-head: opponent name, their league rank, and average-XI-skill comparison bars with a plain-language verdict. (`opponentTeam` was previously fetched in full but only its name was displayed.)
 
@@ -46,7 +46,7 @@ Dashboard: club status, next fixture, and the lineup builder.
 - Changing formation clears the XI, so it now asks first via `AppConfirmModal` (with undo) rather than doing it silently.
 - Selecting a player is **silent on success** — the marker appearing is the feedback. Only a *blocked* selection raises a toast. The old build fired a toast on every single tap.
 
-**Readiness checklist** — the "Go to Matchday" button states exactly what is missing ("Pick 1 more defender") instead of just being disabled.
+**Readiness checklist** — the "Go to Matchday" button states exactly what is missing ("Pick 1 more defender") instead of just being disabled. When the squad cannot legally fill *any* formation — every one needs a goalkeeper, so all keepers injured is a permanent lockout — a **Field an emergency XI** button appears instead and hands selection to `autoSelectLineup()`. See [tactics.md](../functional/tactics.md#selection-state).
 
 **Squad table** — position tabs, search, availability/fitness filters and sort, via `useSquadFilters`.
 
@@ -77,13 +77,56 @@ The player's own row is **highlighted** (previously indistinguishable from the o
 ---
 
 ### `/game/transfers` — `pages/game/transfers.vue`
-Transfer market.
+Transfer market, plus the inbox for bids received.
 
+- **Offers for your players** sits above the market whenever a bid is pending: the player, the bidding club, the fee against his valuation, how many matchdays remain to decide, and Accept / Reject. See [transfers.md](../functional/transfers.md#offers-for-your-players).
+- **Free agents** carry a badge, show "No fee — wages only" in place of a price and budget bar, and open `ContractModal` in `mode="sign"` instead of a purchase confirmation — the decision is the wage, not the fee.
 - The native `confirm()` box is replaced by `AppConfirmModal`, showing fee and balance-after.
 - Search is **debounced** (350 ms); it previously fired a request per keystroke.
 - Position tabs, "affordable only", and sort by skill/value/age. Results capped at 60.
 - Each card shows what share of the budget the fee consumes; unaffordable players state the shortfall.
 - A completed signing fires confetti.
+
+---
+
+### `/game/finance/*` — five pages under `pages/game/finance/`
+
+The financial section. `FinanceNav.vue` links them using the `app-filter-chip` idiom from the transfer market's tabs; the topbar needs no change, because `isActiveLink()` prefix-matches and every `/game/finance/*` route already lights the Finance pill.
+
+| Route | Page | Backed by |
+|---|---|---|
+| `/game/finance` | `finance/index.vue` | `GET /api/finance/summary`, `GET /api/finance/loans` |
+| `/game/finance/projection` | `finance/projection.vue` | `GET /api/finance/projection` |
+| `/game/finance/commercial` | `finance/commercial.vue` | `GET`/`POST /api/finance/commercial` |
+| `/game/finance/stadium` | `finance/stadium.vue` | `GET`/`POST /api/finance/stadium`, `PUT /api/team/:id/stadium` |
+| `/game/finance/facilities` | `finance/facilities.vue` | `GET`/`POST /api/finance/facilities` |
+
+**Overview** — a health banner (only when something is wrong; a permanent "everything is fine" banner is furniture, not information), balance / turnover / season result / projected close, a profit and loss grouped by `INCOME_GROUPS` and `COST_GROUPS`, wage pressure against turnover, the debt section with borrow and early-settlement controls, and the ledger.
+
+**Projection** — four seasons as an **inline SVG built in a `computed`**, which is the house pattern (`components/matchday/StatsPanel.vue`): there is no chart library, and adding one would break the styling rules. Central line plus a best/worst band, a per-season stream table, risk flags and the budget advisor.
+
+**Commercial** — competing offers per slot with their term, fee and bonus mix; the deals currently running; the perimeter ladder. Selling naming rights is guarded by `AppConfirmModal` because it costs fan confidence.
+
+**Stadium** — crowd and gate, pitch condition with its match penalty, promoter offers and the diary, ticket price, season-ticket terms with a live preview, boxes and expansion. Any booking that touches the pitch confirms first, showing the fee, the wear and the penalty it will cost the team.
+
+**Facilities** — the academy and the training ground, each stated as *what it changes now* → *what it would change*, with an explicit note that neither pays back this season and a link to the projection, which is the only place the decision can be judged.
+
+---
+
+### `/game/history` — `pages/game/history.vue`
+Past seasons from `season_summary` (`GET /api/season/history`) — champions per league, the player's finishing position and points, and a titles-won count. Standings are computed on the fly from `matches` and vanish when the next season's fixtures are inserted, so this table is what survives a rollover.
+
+---
+
+### `/game/season-end` — `pages/game/season-end.vue`
+The end-of-season screen. Refuses to roll over while fixtures remain (it reports how many, and how many are the player's). Otherwise: final position, then **Start the next season** → `POST /api/season/rollover`, followed by a summary of retirements, youth intake, and the biggest risers and fallers. Confetti on a title.
+
+---
+
+### `/game/dismissed` — `pages/game/dismissed.vue`
+The sack. Terminal: the route guard sends every `/game*` and `/matchday` route here while `game.dismissed_at_season` is set, and the topbar is hidden because this is an ending rather than a section of the app.
+
+Shows the board's verdict, the meters at the end, the boardroom news trail that led to it, a tenure summary (seasons, titles, best finish) and the manager's season-by-season record. One action: **Start a new game**. See [gameflow.md § The Board](../functional/gameflow.md).
 
 ---
 
@@ -113,6 +156,7 @@ The clock uses `useIntervalFn` at `1000 / speed` ms, so the **playback speed con
 | `FormGuide.vue` | Last-five W/D/L pills |
 | `SquadFilters.vue` | Filter bar, pairs with `useSquadFilters` |
 | `LineupPitch.vue` | The lineup builder's pitch |
+| `ContractModal.vue` | Contract talks — wage/length offer against the player's published demand curve. `mode="renew"` extends a squad player (Team page); `mode="sign"` takes on a free agent (Transfers page). Same panel, same pricing, different commit endpoint |
 | `ThemeSwatchEditor.vue` | One editable colour with picker, hex field, presets and contrast readout |
 
 ### Matchday
@@ -153,6 +197,10 @@ Validation runs through **`substitutionError()` and `applyMidMatchChanges()` fro
 | `useSfx()` | Web Audio sound engine — see below |
 | `useMatchStats()` | Derives shots, corners, cards, territory and momentum from the revealed event list. No new endpoint |
 | `useSquadFilters()` | Position tabs, search, availability filters and sort |
+| `useFinanceSummary()` | The club's profit and loss. Keyed so the overview, the stadium page and the topbar ride one request and refresh together |
+| `useFinanceProjection()` | The four-season forecast and the budgets. Shares a key with the projection page, so the transfer market and the contract modal show the same numbers rather than a second estimate that can drift |
+| `useFinanceLoans()` | Debt and borrowing terms. Keyed separately because the limit depends on the forecast, and the overview should not pay for it twice |
+| `useFinanceFacilities()` | Academy and training-ground levels, and what each does |
 
 ### `useSfx()`
 Eight cues **synthesised in the browser** from oscillators and filtered noise — no assets to ship, no licensing, works offline. The AudioContext is created on the first cue, since browsers refuse to start one outside a user gesture.
@@ -171,13 +219,18 @@ Real recordings can replace any cue without a code change: drop `public/sfx/{nam
 | `table.ts` | `sortableHeader()` — the sortable-column block was copy-pasted **eleven times** — and `positionSortingFn()` |
 | `match-events.ts` | Event icons, labels, colours, weighting and filters |
 | `results.ts` | W/D/L computation and recent form |
+| `format.ts` (additions) | `formatDelta`, `formatPercent` and `moneyColor` were added here rather than inlined — several pages had been inlining all three |
+
+### `shared/finance.ts`
+
+Not a utility but worth naming here: stream labels, icons and groupings (`STREAM_META`), the profit-and-loss group order, the insolvency `HEALTH_STAGES`, the facility tier names, and `affordableFee()`. Shared between server and client deliberately — the server totals ledger streams and the pages label them, and two copies of that map is exactly how "Commercial" comes to mean one thing on the overview and another on the projection.
 
 ---
 
 ## Stores
 
 ### `stores/game.ts` — `useGameStore`
-Minimal save-state store used by the route guard. `initialize()` fetches `GET /api/game/state`.
+Minimal save-state store used by the route guard. `initialize()` fetches `GET /api/game/state` and keeps `userTeamId` plus `dismissedAtSeason`; the `dismissed` getter is what the guard branches on.
 
 ### `stores/settings.ts` — `useSettingsStore`
 Player preferences: `themeId`, seed overrides, `motion`, `muted`, `volume`, per-category sound toggles, `playbackSpeed`, `confirmSelling`, `verboseToasts`.
@@ -191,10 +244,16 @@ Persisted to `localStorage` under `fpt:settings:v1` — the same shape the pre-p
 ## Layouts and middleware
 
 ### `layouts/default.vue`
-Shell wrapper with layered background glows and film grain, a route-change progress bar, and `<Sidebar>` on `/game*` routes.
+Shell wrapper with layered background glows and film grain, a route-change progress bar, and `<Sidebar>` on `/game*` routes — **except `/game/dismissed`**, which hides it: every nav link there would only bounce straight back.
 
 ### `middleware/require-active-game.global.ts`
-Unchanged. Guards `/game*` and `/matchday`, redirecting to `/new-game` when no save exists.
+Guards `/game*` and `/matchday`:
+
+- no save → `/new-game`
+- save with `dismissedAtSeason` set → `/game/dismissed`
+- `/game/dismissed` without a dismissal → back to `/game`
+
+The redirect is for the player's benefit; the server enforces the same rule independently via `requireActiveManager()`, so the guard is not the only thing holding the line.
 
 ---
 

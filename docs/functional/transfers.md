@@ -10,7 +10,11 @@ The transfer system lets the player buy players from AI clubs or sell players fr
 |---|---|---|
 | Sell a player | `/game/team` (Squad page) | `POST /api/transfers { playerId, action: 'sell' }` |
 | Buy a player | `/game/transfers` (Transfer market) | `POST /api/transfers { playerId, action: 'buy' }` |
-| View history | (not implemented) | `GET /api/transfers/history` (stub) |
+| Sign a free agent | `/game/transfers` → contract talks | `POST /api/transfers { playerId, action: 'sign', wage, seasons }` |
+| Answer a bid for your player | `/game/transfers` (Offers inbox) | `POST /api/transfers/offers { offerId, action }` |
+| View history | `GET /api/transfers/history` | Derived from the ledger |
+
+All three write actions settle through one function, `settleTransfer()` in `server/core/market.ts`, so the money, the ledger, the fan reaction and the news item cannot drift apart between a purchase, a sale and an accepted bid.
 
 ---
 
@@ -59,21 +63,16 @@ Teams that cannot afford `transferValue` are excluded.
 A random buyer is chosen from the filtered pool.
 
 ### 3. Transaction (DB)
-```sql
-BEGIN TRANSACTION;
-  UPDATE players SET team_id = buyerTeam.id, market_value = transferValue WHERE id = player.id;
-  UPDATE teams SET bank_balance = sellerTeam.bankBalance + transferValue WHERE id = sellerTeam.id;
-  UPDATE teams SET bank_balance = buyerTeam.bankBalance - transferValue WHERE id = buyerTeam.id;
-COMMIT;
-```
+
+`settleTransfer()` moves the player and posts a **matched pair of ledger entries** — see [Transfers and the ledger](#transfers-and-the-ledger) — then applies the fan reaction and the news item, all inside one transaction.
 
 Market value is **updated upward** on sell — the player becomes more expensive in future transfers.
 
 ### 4. Response
 ```json
-{ "success": true, "buyerTeam": "Chelsea", "salePrice": 21500000 }
+{ "success": true, "buyerTeam": "Chelsea", "salePrice": 21500000, "fanConfidence": 61 }
 ```
-A toast notification displays: `"Player Sold: {name} ({position}) sold for {price} to {team}"`.
+`fanConfidence` is the meter's new value when the move was notable enough to move it, `null` otherwise.
 
 ---
 
@@ -83,32 +82,41 @@ A toast notification displays: `"Player Sold: {name} ({position}) sold for {pric
 The player searches for a player on `/game/transfers` and clicks **Buy**.
 
 ### 2. Confirmation
-A browser `confirm()` dialog shows: `"Buy {name} for {price}?"`.
+An `AppConfirmModal` showing the fee and the balance after. (This replaced a native `confirm()` box.)
 
 ### 3. Validation (`action: 'buy'`)
 - Player must not already belong to the player's team.
 - `playerTeam.bankBalance >= player.marketValue`.
 
 ### 4. Transaction (DB)
-```sql
-BEGIN TRANSACTION;
-  UPDATE players SET team_id = playerTeam.id WHERE id = player.id;
-  UPDATE teams SET bank_balance = playerTeam.bankBalance - player.marketValue WHERE id = playerTeam.id;
-  UPDATE teams SET bank_balance = sellerTeam.bankBalance + player.marketValue WHERE id = sellerTeam.id;
-COMMIT;
-```
 
-**Buy price = current `marketValue` with no premium.** The buyer pays face value.
+The same `settleTransfer()` path as a sale, with the ledger pair mirrored — the manager's club takes the `transfer_in` debit, the selling club the `transfer_out` credit.
+
+**Buy price = current `marketValue` with no premium.** The buyer pays face value. A bought player carries his existing wage and contract across; there is no renegotiation on arrival.
 
 ### 5. Response
 ```json
-{ "success": true, "buyerTeam": "Arsenal", "sellerTeam": "Manchester City", "purchasePrice": 18000000 }
+{ "success": true, "buyerTeam": "Arsenal", "sellerTeam": "Manchester City", "purchasePrice": 18000000, "fanConfidence": 73 }
 ```
-A toast notification displays: `"Player Bought: {name} signed from {team} for {price}"`.
 
-After a successful buy:
-- The search results refresh (the bought player no longer appears).
-- The displayed budget updates.
+After a successful buy the search results and budget refresh, and the bought player no longer appears on the market.
+
+---
+
+## Signing a Free Agent
+
+A free agent (`players.free_agent = 1`) is unattached: released at a rollover, still carrying his old `team_id` so the market can show who let him go. He costs **no fee** — only a wage — so signing him is a negotiation rather than a purchase.
+
+The transfer market lists him with a **Free agent** badge, `fee: 0`, and a **Talk terms** button that opens the same `ContractModal` the Team page uses for renewals, in `mode="sign"`. `GET /api/team/:id/contract` serves the demand curve for any free agent as well as for the club's own players, so both sides of the panel are priced by one function.
+
+```
+POST /api/transfers { playerId, action: 'sign', wage, seasons }
+```
+
+- **A refusal is a `200`, not an error**: `{ success: false, accepted: false, required, maxSeasons, reason }`. The response carries what he actually wanted, so the manager can meet it rather than guess.
+- On acceptance the player joins for nothing, `free_agent` clears, and the agreed `wage` / `contract_until_season` are written. No ledger entry, because no cash moved — the wage flows through matchday settlement like any other.
+
+> **This was half-built.** `GET /api/players/search` already returned `freeAgent` and `fee: 0`, and the page ignored both — a free agent was listed at a fee of zero and then charged full `marketValue` by the buy path, which also failed to clear his `free_agent` flag.
 
 ---
 
@@ -118,7 +126,7 @@ After a successful buy:
 |---|---|
 | Player sold to AI | `marketValue` increases to `transferValue` (includes premium) |
 | Player bought by player | `marketValue` unchanged |
-| Between seasons / over time | Market value **never changes** automatically (no ageing/development system) |
+| Between seasons | **Recomputed** for every survivor at the rollover by `marketValueFor(skillLevel, age, potential)` — ageing and development move it every year. See [season.md § Market value](../technical/season.md#market-value) |
 
 ---
 
@@ -127,10 +135,13 @@ After a successful buy:
 `GET /api/players/search?query=`
 
 - Server-side `LIKE %query%` on `players.name`.
-- Always excludes the player's own squad (`ne(players.teamId, game.playerTeamId)`).
-- Returns all non-player-team players when query is empty.
+- **Always excludes retired players** (`retired = 0`) — they must never appear on the market.
+- Excludes the player's own squad, **except free agents**: a released player keeps his old `team_id`, so a plain "not at your club" filter would make re-signing someone you released impossible.
+- Returns everyone matching when the query is empty.
 
-The search input is debounced client-side via a `computed` on `searchQuery.value.trim()` that feeds the reactive fetch URL. No minimum character threshold — an empty string returns everyone.
+Each result is enriched with `teamName`, `teamReputation`, `freeAgent` (boolean) and `fee` — `0` for a free agent, `marketValue` otherwise. The page reads all four: a free agent carries a badge, shows "No fee — wages only" in place of a price and budget bar, and opens contract talks instead of a purchase confirmation.
+
+The search input is debounced (350 ms) client-side. No minimum character threshold — an empty string returns everyone.
 
 ---
 
@@ -147,9 +158,83 @@ Available budget is shown at the top of the Transfers page. It is fetched via `u
 | No AI buyer found | Server returns `400 "No team can afford this player"` |
 | Player doesn't belong to player team | Not enforced on sell — server sells from player's team by looking up `player.teamId` |
 | Selling down to 0 players | Not prevented — the player can sell their entire squad |
+| Manager has been dismissed | `requireActiveManager()` returns `403 "You were dismissed. This save is closed."` |
+
+---
+
+## Offers for Your Players
+
+AI clubs bid for the manager's squad. Bids live in `transfer_offers` and are driven by `server/core/market.ts`.
+
+### When they arrive
+
+`runTransferMarket(season, round)` runs at the end of every matchday, from `POST /api/match/finish`, **after** the board has settled — so a bid always lands against a table that already reflects the round just played. It does two things: lapse bids older than `OFFER_LIFETIME_ROUNDS` (3), then possibly create one new bid.
+
+Generation is deliberately restrained — a club fielding four bids a week would be running an auction house rather than a season:
+
+| Rule | Value |
+|---|---|
+| Chance of any interest per matchday | 45% |
+| New bids per matchday | At most 1 |
+| Pending bids at once | At most 4 |
+| Squad floor below which nobody bids | 16 players |
+| Who is targeted | A random pick from the better half of the squad, never someone already bid for |
+| Who bids | Any club that can afford the fee and whose best player is no more than 4 skill above the target — a club does not bid for someone who would not get into its side |
+| Fee | `marketValue × (1 + premium)`, premium `0.08 + reputation × 0.30 + random(0, 0.12)` |
+
+Bids are announced in the news feed, and are also cancelled implicitly: accepting one expires every other pending bid for the same player.
+
+### Answering
+
+```
+POST /api/transfers/offers { offerId, action: 'accept' | 'reject' }
+```
+
+`GET /api/transfers/offers` lists what is on the table — the player, the bidding club, the fee, how far above his valuation it sits, and how many matchdays remain to decide. The transfers page renders it as an inbox above the market, with Accept / Reject per bid. A bid whose player has since retired or moved on is filtered out rather than shown as answerable.
+
+Accepting settles through the same `settleTransfer()` as a manual sale, so the ledger pair, the fan reaction and the news item are identical however the player left. The fee also becomes the player's new `market_value` — a club that just paid it has repriced him.
+
+> **`transfer_offers` used to be dead schema.** It was declared, and cleared by `seed.ts` and `POST /api/game/start`, but nothing ever inserted or read a row — no AI club took any interest in the manager's squad.
 
 ---
 
 ## Transfer History
 
-`GET /api/transfers/history` is a stub that always returns `[]`. No transfers table exists. See `TASKS.md` task #3 for the implementation spec.
+```
+GET /api/transfers/history
+```
+
+The manager's completed business, newest first: `{ season, round, direction, fee, description, createdAt }`, where `direction` is `in` (a player joined) or `out` (a player left) and `fee` is always positive.
+
+**Derived from `finance_ledger`,** not from a transfers table. Every transfer posts `transfer_in` / `transfer_out` rows that already record the fee, the matchday and a description naming the other club, so reading them back is the whole feature. This was previously a stub returning `[]` with a note that "in a real application you would create a transfers table" — the ledger made one unnecessary.
+
+---
+
+## Transfers and the ledger
+
+Every money movement in the game — wages, gate receipts, sponsorship, prize money, stadium expansion and now transfers — is posted through `finance_ledger`, so the finance page can explain the balance rather than merely assert it.
+
+Ledger semantics for a transfer are by **player direction**, mirrored across the two clubs:
+
+| Type | Meaning | Sign |
+|---|---|---|
+| `transfer_in` | A player joining | Negative (cash out) |
+| `transfer_out` | A player leaving | Positive (cash in) |
+
+So one move writes exactly two rows — a `transfer_out` credit to the seller and a `transfer_in` debit to the buyer — which **net to zero across the world**. That is the property that makes the ledger auditable, and it is verified: after a buy and a sale, the sum of every transfer row in the database is 0.
+
+A free-agent signing writes no rows at all, because no cash moves.
+
+> **Transfers used to bypass the ledger entirely.** `POST /api/transfers` updated `teams.bank_balance` directly, so `transfer_in` and `transfer_out` were declared in `LEDGER_TYPES` and never written — a balance rebuilt from the ledger disagreed with the stored one for any club that had traded, which defeats the point of keeping a ledger.
+
+---
+
+## Fan reaction
+
+Selling or signing a notable player moves fan confidence immediately, through `transferReaction()` and `nudgeFans()` in `server/core/board.ts`.
+
+The reaction scales by how good the player was **relative to the best player at the club**: below roughly 90% of that standard nobody much minds, and the effect grows sharply above it. Selling is weighted harder than buying (`−12` against `+8` per unit of standing), because supporters notice a departure more than an arrival.
+
+It is applied directly rather than through a target, since it is a reaction to an *event* rather than to a state — the matchday easing then pulls the meter back toward whatever the league table says, so a shock fades if results hold up. Only the manager's own business counts; AI-to-AI moves move nothing.
+
+> **Both functions previously had no callers.** Selling the best player at the club moved nothing at all.

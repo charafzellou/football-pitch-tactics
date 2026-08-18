@@ -47,7 +47,13 @@ The game is built using :
 - **League**: The league in which the team competes.
 - **Tactics**: The team's preferred playing style and strategy.
 - **Squad Quality**: An assessment of the team's overall player quality and availability.
-- **Finances**: The team's financial status represented as a net worth (available funds for transfers).
+- **Reputation**: A 0–100 standing derived from squad strength and league rank. It is the single input the whole economy hangs off — it sizes the stadium, commercial income and prize money, sets the fair ticket price and the starting balance, and seeds the board's expectations.
+- **Finances**: Not a net worth. A club runs a real profit and loss, settled every matchday through a ledger: gate receipts, sponsors, the club shop, advertising, hospitality and stadium hire on one side; wages, matchday operations, facility upkeep and debt service on the other. Every movement is recorded, so a balance can always be explained rather than merely asserted.
+- **The ground**: Capacity, ticket price, season tickets, executive boxes, advertising boards and pitch condition — the pitch wears when the ground is hired out for a concert, and a worn pitch costs the home side.
+- **Facilities**: An academy and a training ground, 0–3 each, which shape youth intake, player development and recovery — and pay back over seasons rather than within one.
+- **Debt**: A club can borrow against its projected income. Going overdrawn costs interest, then a transfer embargo, then forced sales.
+
+See [docs/functional/finances.md](docs/functional/finances.md) for the decisions and [docs/technical/economy.md](docs/technical/economy.md) for the formulas.
 
 ### Match Attributes
 

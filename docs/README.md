@@ -15,6 +15,7 @@ This folder contains all documentation for the project, split into **technical**
 | [technical/css-styling.md](technical/css-styling.md) | Tailwind v4 theme, CSS variable system, component class catalogue |
 | [technical/match-engine.md](technical/match-engine.md) | Simulation algorithm — lineup resolution, stats calculation, weighted event generation |
 | [technical/season.md](technical/season.md) | Season lifecycle — fixture calendar, AI fixture resolution, ageing, progression, retirement, youth intake, rollover |
+| [technical/economy.md](technical/economy.md) | Money — the ledger, the commercial decomposition, sponsors, the stadium, debt, insolvency, the four-season forecast and the budget advisor |
 
 ## Functional Documentation
 
@@ -24,3 +25,4 @@ This folder contains all documentation for the project, split into **technical**
 | [functional/matchday.md](functional/matchday.md) | Matchday experience, playback system, live clock mechanics |
 | [functional/tactics.md](functional/tactics.md) | Formations, modifiers, lineup legality rules |
 | [functional/transfers.md](functional/transfers.md) | Buy/sell flow, market value, AI buyer selection |
+| [functional/finances.md](functional/finances.md) | The Chairman's and Director of Football's decisions — commercial deals, the ground, facilities, budgets, and what insolvency costs |

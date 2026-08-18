@@ -9,7 +9,7 @@ The matchday page (`/matchday`) is the core gameplay experience. It simulates a 
 Before the player can start a matchday:
 
 1. An active save must exist (enforced by global middleware).
-2. The player must have a valid 11-player lineup selected and a tactic chosen (enforced by the Dashboard's **Go to Matchday** button, which calls `PUT /api/team/:id/tactics` and only navigates if `lineupIsComplete === true`).
+2. The player must have a valid 11-player lineup selected and a tactic chosen (enforced by the Dashboard's **Go to Matchday** button, which persists both — `PUT /api/team/:id/tactics` then `PUT /api/team/:id/lineup` — and only navigates if `lineupIsComplete === true` and both saves succeed).
 3. There must be an unplayed fixture for the player's team (the page reads `GET /api/schedule` on mount; if the schedule is empty, the match info section shows nothing).
 
 ---
@@ -98,8 +98,8 @@ At minute 45 the clock stops itself — no player action needed — and `MatchTa
 ### 8. Full time
 
 When `currentMinute` reaches 90 (`tickOnce` detects it):
-- Clock stops and the client calls `POST /api/match/finish`, which is what commits `homeScore`/`awayScore`/`played = 1`, writes each player's recovered stamina back to `players.stamina`, updates injury countdowns, and advances `game.currentDate`.
-- `isFinished = true` only once that call succeeds, and the **End Match** button appears (navigates to `/game`).
+- Clock stops and the client calls `POST /api/match/finish`, which commits `homeScore`/`awayScore`/`played = 1`, writes each player's recovered stamina back to `players.stamina`, updates injury countdowns, settles the matchday's finances (wages, gate receipts, sponsorship), advances `game.currentDate`, **resolves every other fixture in the round headlessly** (see [season.md](../technical/season.md#resolving-ai-fixtures)), settles board and fan confidence now that the whole round's results are in, and finally runs the transfer market — lapsing stale bids and possibly generating a new one (`offersReceived` / `offersExpired` in the response). See [transfers.md](transfers.md#offers-for-your-players).
+- `isFinished = true` only once that call succeeds, and the **End Match** button appears — navigating to `/game`, or to `/game/dismissed` if this result was the one that cost the manager their job (`board.dismissed` in the response, which also raises a toast at full time).
 - If it fails, the result is *not* silently dropped: a toast explains, and a **Retry saving result** button appears in place of End Match.
 
 > **Nothing is committed until the clock gets here.** The second half is simulated in one go the moment the manager leaves half time, ~45 seconds of playback before minute 90 arrives — and a pause anywhere in that stretch rewinds and re-simulates the rest, so the "result" is provisional the whole time. Finalising at simulation time (as an earlier version did, inside `advance`) nulled `matches.state` for the entire second half, which made every mid-second-half substitution fail with `400 Match has not started`.
@@ -177,7 +177,7 @@ The feed label itself (`eventLabel()`) also goes through the normaliser: `yellow
 
 ## Feed Filters
 
-A match generates ~45 events (scaled down from real-world frequencies — see [match-engine.md](../technical/match-engine.md#event-rates-real-world-data-scaled-for-pacing)), still dominated by crosses (~15) and fouls (~11), so the feed carries filter chips. All events are always stored in `match_events` — the filter is display-only.
+A match generates ~38 events (scaled down from real-world frequencies — see [match-engine.md](../technical/match-engine.md#event-rates-real-world-data-scaled-for-pacing)), still dominated by crosses (~13.7) and fouls (~9.5), so the feed carries filter chips. All events are always stored in `match_events` — the filter is display-only.
 
 | Chip | Shows |
 |---|---|
@@ -218,12 +218,14 @@ LIVE
 
 ```typescript
 onBeforeRouteLeave(() => {
-  if (hasStarted.value && !isFinished.value)
+  if (hasStarted.value && !isFinished.value) {
+    toast.warn({ title: 'Match in progress', description: 'Play through to full time…' })
     return false   // blocks navigation
+  }
 })
 ```
 
-While a match is in progress (started but not finished), the player **cannot navigate away** — all route changes are blocked. This prevents data corruption (the match has already been persisted by the server, but `game.currentDate` may not have advanced yet in the client's mental model). Once the match is finished, normal navigation resumes.
+While a match is in progress (started but not finished), the player **cannot navigate away** — all route changes are blocked, with a toast explaining why. (It previously blocked silently, which read as a broken link.) The result is not committed until minute 90, so leaving early would abandon it. Once the match is finished, normal navigation resumes.
 
 ---
 

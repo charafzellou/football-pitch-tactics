@@ -1,6 +1,6 @@
 # Match Engine
 
-The simulation logic lives in `frontend/server/core/match-engine.ts`. It is a pure function — no database access — called by `POST /api/match/start`, `/api/match/advance`, and `/api/match/changes` (see [api-routes.md](api-routes.md)). It shares its lineup rules with the client via `frontend/shared/lineup.ts`, and its live-match state rules via `frontend/shared/match-state.ts`.
+The simulation logic lives in `frontend/server/core/match-engine.ts`. It is a pure function — no database access — called by `POST /api/match/start`, `/api/match/advance` and `/api/match/changes` (see [api-routes.md](api-routes.md)), and by `server/core/matchday-ai.ts` to play out AI-vs-AI fixtures headlessly. It shares its lineup rules with the client via `frontend/shared/lineup.ts`, and its live-match state rules via `frontend/shared/match-state.ts`.
 
 ---
 
@@ -40,22 +40,28 @@ resolveLineup(squad, formation, savedIds) → { starters, bench, autoSelected }
 
 **Position mapping** (`normalizePosition()`, shared): the seed data mixes abbreviations (`"GK"`, `"DEF"`, `"MID"`, `"ATT"`) and full names (`"Goalkeeper"`, `"Defender"`, `"Midfielder"`, `"Forward"`/`"Attacker"`) — both forms map to the canonical `GK | DF | MF | FW` slot, from one function used everywhere a position string is compared.
 
-**CPU teams:** every AI club has `teams.lineup = NULL`, so they are always auto-selected using their tactic's formation (or the default 4-4-2 if no tactic is set). This is the same "Auto-select" logic intended for a future "Auto-select" button on the player's own Dashboard — it isn't wired to a button yet, but the function it would call already exists and is reused, not duplicated.
+**CPU teams:** every AI club has `teams.lineup = NULL`, so they are always auto-selected using their tactic's formation (or the default 4-4-2 if no tactic is set). The Dashboard's **Auto-pick best XI** button and its **Field an emergency XI** fallback call the same `autoSelectLineup()` for the player's own team, so there is one implementation rather than two that can drift.
+
+A rollover clears `teams.lineup` for *every* club, including the player's — a saved XI may name someone who has just retired or left — so the first match of each new season is auto-selected on both sides until the manager saves a teamsheet.
 
 ---
 
 ## Phase 2 — Team Stats (`calculateTeamStats`)
 
 ```typescript
-calculateTeamStats(onPitch: Player[], stamina: Record<number, number>, tactic: Tactic) → { attack, defence }
+calculateTeamStats(onPitch: Player[], stamina: Record<number, number>, tactic: Tactic, pitchPenalty = 0) → { attack, defence }
 ```
 
 Recomputed **every minute** now, not once at kickoff, from whoever is currently `onPitch` and their current stamina:
 ```
 avgSkill = sum(effectiveSkill(p.skillLevel, stamina[p.id])) / LINEUP_SIZE   // LINEUP_SIZE = 11, not onPitch.length
-attack   = avgSkill + tactic.modifiers.attack
-defence  = avgSkill + tactic.modifiers.defence
+attack   = avgSkill + tactic.modifiers.attack  − pitchPenalty
+defence  = avgSkill + tactic.modifiers.defence − pitchPenalty
 ```
+
+`pitchPenalty` is `pitchPenaltyFor(homeTeam.pitchCondition)` and is applied **to the home side only** — up to `MAX_PITCH_PENALTY` (2.5), which is deliberately comparable to a formation choice. It is the ground's own club that hired it out for a concert, so it is the ground's own club that plays on the goalmouth afterwards; the money and the rutted turf belong to the same decision. The away side's rating is unaffected.
+
+**The injury rate is not split that way.** `drawKind(injuryScale)` takes `pitchInjuryScaleFor(homeTeam.pitchCondition)` and inflates the `injury` bucket for **both** sides by up to 50% — a cut-up goalmouth does not know who booked the concert. The extra probability comes out of the empty remainder of the ticket (the minutes in which nothing happens), so every other event type keeps its exact rate and none of the calibration below is disturbed. See [economy.md § Pitch condition](economy.md#pitch-condition).
 
 `effectiveSkill` (in `shared/match-state.ts`) damps skill by fatigue — see [Fatigue and Stamina](#fatigue-and-stamina) below. Both stats are floating-point numbers typically in the range **50–100**. Recomputing every minute is what makes a substitution or a tired legs take effect immediately rather than only at the next match — and why this is safe for calibration: recomputing per-minute doesn't change the *shape* of the calculation, only when it's evaluated, and fatigue applied symmetrically to both sides cancels out in the edge calculation below (see [Measured Output](#measured-output)).
 
@@ -244,6 +250,8 @@ An `injury` draw (see [Event Rates](#event-rates-real-world-data-scaled-for-paci
 
 **Availability is tracked as an explicit countdown, not a stamina threshold.** `players.injuredMatches` (migration `0008_add_player_injuries.sql`) counts down at every full time and is set to a fresh random 2–4 (`INJURY_MATCHES_MIN`/`MAX`) whenever a player is in a side's `injured` set at that point. This has to be a separate counter from stamina: stamina recovers `+10` for everyone at full time — including players sitting out — so a stamina-based "injured" definition would clear itself the moment it was applied. `isAvailable()` in `shared/lineup.ts` is the one predicate every selection surface checks: the Dashboard lineup builder, `autoSelectLineup` (skips unavailable players, but falls back to including them rather than fielding fewer than eleven), `resolveLineup` (a saved XI containing a newly-injured player is invalidated exactly like a sold one), and `kickOff` (filters an injured player off the `bench`, so they can never be offered as a substitute).
 
+The Dashboard applies one deliberate exception: an injured player becomes selectable once no fit player remains for their line, because every formation needs a goalkeeper and blocking them outright would lock a club out of naming any legal XI. See [tactics.md § Selection State](../functional/tactics.md#selection-state).
+
 **Replacing an injured player is treated as a substitution**, not a special event type — `substitutionError` allows the outgoing player to be either on the pitch *or* already in `injured` (as long as no one has come on for them yet), so "confirm a replacement" and "substitute a tired player" go through the exact same validation and the exact same `applyMidMatchChanges` path.
 
 Injured players still recover the flat `+10`/match while they're out, so a 3-match absence returns someone at roughly 30 — back in the squad, but not match-sharp.
@@ -293,6 +301,10 @@ The literal real-world total (~54.5 events, filling ~60% of the 90 minutes) stil
 
 **Invariants confirmed across the same sample:** zero minutes carrying more than one event, zero events without a `playerId`, and no event types outside the calibrated set.
 
+**Re-run check.** The table above is one 30,000-match snapshot. A fresh `bun run calibrate` reproduces it within sampling variance — goals 1.62, shots 7.80, on target 2.76, yellows 2.44, reds 0.16, fouls 9.52, with 0/30,000 parity and 0/30,000 rewind failures. Squads are drawn at random per run, so small movements between runs are expected; treat the table as the shape, not as exact constants.
+
+> The script's own printed "literature" column disagrees with this document's real-world column for fouls (24.75 vs 15.5). The draw rate the engine actually uses is `REAL_WORLD_EVENT_RATES.foul = 13.5`; both figures are baselines quoted for comparison, and neither feeds the simulation.
+
 **Scoreline shape:** median 1 goal per match, 90th percentile 3, 99th percentile 5, maximum 10 (30,000-match sample, both teams combined). `MAX_EDGE` still caps mismatches, but blowout-margin frequency wasn't re-measured for this update — treat the earlier "~0.2% finish 6+ goal margin" figure as unverified against the retuned rates.
 
 Re-running this measurement is cheap — the engine is a pure function, so it can be driven directly in-process against squads read from `db.sqlite` without starting the dev server, writing to the database, or consuming fixtures. `bun run calibrate` (`frontend/scripts/calibrate-match-engine.ts`) is that script; besides the table above it also asserts `applyEvents` reproduces the engine's own state exactly (0/30,000 parity failures) and that rewinding to an arbitrary earlier minute matches a run stopped there (0/30,000 rewind failures), and reports average end-of-match stamina by position against the constants in [Fatigue and Stamina](#fatigue-and-stamina).
@@ -322,7 +334,7 @@ The engine is still a pure function — none of this lives in `match-engine.ts`.
 
 - **`POST /api/match/start`** — `kickOff()`s a fresh match and persists the minute-0 `MatchState` as `matches.state` (JSON), or resumes an in-progress one by returning the persisted state plus its events. See [api-routes.md](api-routes.md).
 - **`POST /api/match/advance`** — the workhorse. First calls `syncToMinute(matchId, fromMinute)`, which rewinds/fast-forwards the persisted state to the client's actual minute by replaying `match_events` since the last snapshot, and discards anything simulated past that minute. Then runs `simulateSegment(..., nextBreakAfter(fromMinute))` (to 45 or 90) and batch-inserts the new events. It deliberately persists **nothing** else. Only `syncToMinute` writes `matches.state`, always from real events, never from a segment simulated speculatively ahead of the clock.
-- **`POST /api/match/finish`** — full time, called when the client's clock actually reaches 90. Commits `homeScore`/`awayScore`/`played = 1`, writes each player's recovered stamina back to `players.stamina`, updates injury countdowns, nulls `matches.state`, and advances `game.currentDate`. Idempotent, so a refresh at 90' into an already-finished match is a no-op rather than an error.
+- **`POST /api/match/finish`** — full time, called when the client's clock actually reaches 90. Commits `homeScore`/`awayScore`/`played = 1`, writes each player's recovered stamina back to `players.stamina`, updates injury countdowns, nulls `matches.state`, settles the matchday's finances, and advances `game.currentDate`. It then resolves the rest of the round headlessly and settles board/fan confidence — both of which need every other result in first. Idempotent, so a refresh at 90' into an already-finished match is a no-op rather than an error. Deliberately **not** guarded against a dismissed save; see [api-routes.md](api-routes.md#a-dismissed-save-is-read-only).
 - **`POST /api/match/changes`** — the manager's pause-time decisions. Also starts with `syncToMinute`, then applies the substitutions and any tactic change through `applyMidMatchChanges` — which validates each swap against the state *including the swaps before it* — and persists the result, so the *next* `advance` call simulates onward from the changed team sheet.
 
 **Everything above is one rule: nothing about a match is durable until the clock the player is watching has actually reached it.** Both bugs that violated it looked different and broke differently:
@@ -357,4 +369,4 @@ Resolving `eventType` strings to `event_type.id` values (inserting unseen ones, 
 | All events are randomly distributed; goals can happen in minute 1 | No momentum or match state model |
 | Rates must keep summing to under 90 | Types late in the draw order would be starved if the total ever exceeded `MATCH_MINUTES` |
 | `match_events.minute` is no longer unique within a match | A manager substitution can share a minute with whatever the draw loop generated that same minute — see [Event Object Shape](#event-object-shape) |
-| Only the two clubs in a played fixture have stamina/injuries updated | The schedule only simulates the player's own fixtures, so the rest of the league never plays and stays at full stamina/fitness indefinitely — pre-existing, inherited by the injury countdown |
+| ~~Only the two clubs in a played fixture have stamina/injuries updated~~ | **Fixed.** `resolveFixturesUpTo()` plays out every other fixture in the round headlessly when the player's match finishes, and AI squads settle through the same `settleMatchFitness()` — so the whole league tires and picks up injuries. See [season.md § Resolving AI fixtures](season.md#resolving-ai-fixtures). |

@@ -31,13 +31,15 @@ The total always sums to **11 players**.
 
 ## How Modifiers Work
 
-After lineup selection, each team's stats are:
+Each team's stats are recomputed **every minute** from whoever is currently on the pitch:
 
 ```
-avgSkill = average(lineup.skillLevel)
+avgSkill = Σ effectiveSkill(p.skillLevel, stamina[p.id]) / 11   ← fixed 11, not onPitch.length
 attack   = avgSkill + tactic.modifiers.attack
 defence  = avgSkill + tactic.modifiers.defence
 ```
+
+Fatigue is folded in via `effectiveSkill`, and the divisor is a fixed eleven so a red card or an unreplaced injury genuinely costs the side. See [match-engine.md § Team Stats](../technical/match-engine.md#phase-2--team-stats-calculateteamstats).
 
 These stats feed directly into the match engine's attack-chance calculation. The modifiers are small (−2 to +1) relative to the skill scale (50–99), so formation choice has a noticeable but not overwhelming effect.
 
@@ -54,8 +56,8 @@ The lineup builder on the Dashboard enforces these rules:
 
 ### Slot Limits
 Each formation defines how many players of each position can be selected:
-- Selecting a player for a position that is already full shows a toast: `"{position} full"`.
-- Changing formation clears the entire current lineup (toast: `"Lineup reset"`).
+- Selection is **silent on success** — the marker appearing on the pitch is the feedback. Only a *blocked* tap raises a toast ("Cannot select that player") carrying the specific reason, e.g. "Midfielders slots are full" or "Teamsheet already full".
+- Changing formation invalidates the slot limits, so it **asks first** via `AppConfirmModal` and then clears the XI with an undoable toast ("Formation set to 4-3-3 — the previous teamsheet was cleared"). It only asks when there is actually something to lose.
 
 ### Total Players
 - Exactly 11 players must be selected.
@@ -83,9 +85,11 @@ Each player in the squad table can be:
 | Selected | "Selected" (success/soft) | `player.id` is in `selectedPlayers` |
 | Selectable | "Select" (primary/solid) | slot available for their position |
 | Unavailable | "Unavailable" (ghost/outline) | lineup full, position full, unknown position, or injured |
-| Injured | Blocked, reason `"Injured ({n} matches)"` | `player.injuredMatches > 0` — checked before every other rule, so an injured player never shows a slot-based reason instead |
+| Injured | Blocked, reason `"Injured for {n} more matches"` | `player.injuredMatches > 0` **and** a fit player is still available for their line — checked before every other rule, so an injured player never shows a slot-based reason instead |
 
 **Low stamina never blocks selection.** A tired player is still pickable — just weaker in the engine's `effectiveSkill` calculation — so a squad can never be locked out of naming eleven players. Only `injuredMatches > 0` does that; see [match-engine.md § Injuries](../technical/match-engine.md#injuries). The squad table marks an injured row with a red `Injured · {n}` badge and muted text, the same treatment the Team page uses for stamina.
+
+**Injury stops blocking once it would deadlock the teamsheet.** Every formation needs exactly one goalkeeper, so a club whose keepers are all injured could never satisfy the slot counts **Go to Matchday** is gated on, in any formation — a permanent lockout. So an injured player becomes selectable as soon as the fit players in their slot no longer cover what the formation asks for; the injured warning still shows, they are simply no longer blocked when they are the only option. If the squad is short in a slot outright and *no* formation can be filled, the dashboard offers **Field an emergency XI**, which hands selection to `autoSelectLineup()` — the same fallback described below for CPU clubs.
 
 ---
 
@@ -108,7 +112,7 @@ A saved lineup is only ever used if it's still valid at read time — see [Lineu
 
 ## AI Team Tactics
 
-All AI teams have `tactics = NULL` in the initial seed data. They always simulate with the default 4-4-2 formation. Implementing AI tactic variety is listed in `TASKS.md` task #18.
+All AI teams have `tactics = NULL` in the initial seed data. They always simulate with the default 4-4-2 formation, and never change it — mid-match or between matches. AI tactic variety is not implemented.
 
 ---
 
@@ -121,7 +125,7 @@ Every team that enters a match — human or AI — resolves to an XI through the
 
 **Every AI-controlled club is always auto-selected**, since only the player's own team currently has a "save lineup" UI. The player's team is auto-selected too, until they visit the Dashboard and save an XI — the very first match of a new save, before the lineup builder has been touched, is auto-selected for both sides.
 
-**Reusability by design:** `autoSelectLineup()` takes a squad and a formation and returns an XI — it has no dependency on which team it's for. This is the same function a future "Auto-select" button on the Dashboard's lineup builder would call for the player's own team; the logic already lives in one place rather than being duplicated when that button is added.
+**Reusability by design:** `autoSelectLineup()` takes a squad and a formation and returns an XI — it has no dependency on which team it's for. The Dashboard's **Auto-pick best XI** button and its **Field an emergency XI** fallback both call it for the player's own team, so the human and CPU paths share one implementation rather than two that can drift.
 
 **Where this shows up:**
 - `GET /api/team/:id` resolves and returns `startingXi` (array of ids), `bench` (array of ids), and `lineupAutoSelected` (boolean) alongside the raw squad — see [api-routes.md](../technical/api-routes.md).

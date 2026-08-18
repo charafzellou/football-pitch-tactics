@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Football Pitch Tactics is a single-player, browser-based football management game. It runs entirely on one machine: the Nuxt server handles both the Vue SSR/SPA frontend and all API logic, with a local SQLite database file.
+Football Pitch Tactics is a single-player, browser-based football management game. It runs entirely on one machine: the Nuxt server serves the Vue SPA and all API logic from one process, with a local SQLite database file. Rendering is client-side only — `ssr: false`, see [frontend.md](frontend.md#rendering-mode).
 
 ```
 Browser ──HTTP──▶  Nuxt Dev Server (port 8080)
@@ -20,7 +20,7 @@ There is no separate backend process. Nuxt's Nitro engine serves both the fronte
 | Layer | Technology | Version | Role |
 |---|---|---|---|
 | Runtime | Bun | latest | Package manager and JS runtime |
-| Framework | Nuxt | ^4.5.1 | Full-stack Vue meta-framework |
+| Framework | Nuxt | ^4.5.2 | Full-stack Vue meta-framework |
 | UI | Nuxt UI | ^3.3.7 | Component library (built on Tailwind v4 + Radix) |
 | State | Pinia | ^3.0.4 | Client-side store for game/team/league state |
 | Styling | Tailwind CSS | v4 (via Nuxt UI) | Utility classes + CSS-first theme |
@@ -38,32 +38,68 @@ football-pitch-tactics/
 ├── docker-compose.yaml         # Production container setup
 ├── Dockerfile                  # Multi-stage build for the Nuxt app
 ├── Makefile                    # Convenience targets (dev, build, db:setup)
-├── TASKS.md                    # Backlog of proposed improvements
-├── dataset/                    # Raw CSV data (Premier League tactics reference)
+├── LICENSE                     # GNU AGPL v3
+├── dataset/                    # Raw CSV data (Premier League reference)
 ├── docs/                       # This documentation folder
 └── frontend/                   # Entire application lives here
     ├── nuxt.config.ts           # Nuxt configuration
     ├── drizzle.config.ts        # Drizzle ORM config
     ├── package.json
     ├── db.sqlite                # Runtime database file (git-ignored)
+    ├── public/                  # Static assets (favicon, sfx manifest)
+    ├── scripts/                 # Dev-only drivers, not shipped
+    │   ├── calibrate-match-engine.ts   # `bun run calibrate`
+    │   └── sim-season.ts               # Headless season driver
     ├── app/                     # Nuxt "app/" directory (Vue layer)
     │   ├── app.vue              # Root component — UApp wrapper
     │   ├── app.config.ts        # Nuxt UI component token defaults
     │   ├── assets/css/main.css  # Tailwind imports + @theme + @layer components
-    │   ├── components/          # Shared Vue components
-    │   ├── layouts/             # Default layout (shell + sidebar)
+    │   ├── components/          # Shared Vue components (incl. matchday/)
+    │   ├── composables/         # useGameContext, useAppToast, useSfx, …
+    │   ├── layouts/             # Default layout (shell + topbar)
     │   ├── middleware/          # Route guards
     │   ├── pages/               # File-based router
-    │   └── stores/              # Pinia stores
+    │   ├── plugins/             # theme.client.ts
+    │   ├── stores/              # Pinia stores
+    │   └── utils/               # Formatting, themes, tables, results
     ├── shared/                  # Code shared by client and server via Nuxt's #shared alias
-    │   └── lineup.ts            # Position normalisation + auto-select/resolve lineup logic
+    │   ├── lineup.ts            # Position normalisation + auto-select/resolve lineup
+    │   ├── match-state.ts       # Live match state rules + fatigue/injury constants
+    │   └── progression.ts       # Development trend badge
     └── server/                  # Nitro server layer
         ├── api/                 # HTTP route handlers
-        ├── core/                # Game logic (match engine, tactics)
-        └── db/                  # Database: schema, migrations, seed, client
+        ├── core/                # Game logic — see below
+        └── db/                  # Database: schema, migrations, seed, client, league JSON
 ```
 
-**`shared/`** exists so the exact same lineup rules run on both sides of the wire: the match engine (server) uses `shared/lineup.ts` to pick a CPU team's best XI, and the Dashboard lineup builder (client) imports the same module for position normalisation and slot counts. Nuxt exposes this directory automatically via the `#shared` import alias — no extra config was needed. See [match-engine.md](match-engine.md) and [tactics.md](../functional/tactics.md) for how it's used on each side.
+**`server/core/`** holds the game logic, all framework-free and mostly pure:
+
+| Module | Responsibility |
+|---|---|
+| `match-engine.ts` | The simulation — `kickOff`, `simulateSegment` |
+| `match-session.ts` | Persistence plumbing shared by the three `/api/match/*` routes |
+| `tactics.ts` | The four formations and their modifiers |
+| `calendar.ts` | Round-robin pairings and round-based fixture dates |
+| `matchday-ai.ts` | Headless AI-vs-AI resolution, shared fitness settlement |
+| `standings.ts` | League table computation |
+| `season.ts` | Season completion detection and the rollover transaction |
+| `progression.ts` | Ageing, development, retirement, youth intake, valuation |
+| `economy.ts` | Reputation, stadium, wages, ticketing, attendance, prize money, the commercial pool and its parts, running costs, capital prices |
+| `finance.ts` | The ledger, matchday settlement, prize payouts, and the forecast's inputs |
+| `projection.ts` | The four-season forecast and the budget advisor |
+| `sponsors.ts` | The commercial market — offers, deals, bonuses, naming rights |
+| `stadium.ts` | The diary — promoter approaches, event settlement, pitch condition |
+| `loans.ts` | Borrowing terms and per-matchday debt service |
+| `insolvency.ts` | Escalating consequences of an overdrawn account |
+| `matchday.ts` | `settleAftermath()` — everything that happens once the manager's match is over |
+| `contracts.ts` | Renewal terms and whether a player or CPU club accepts them |
+| `market.ts` | Transfer settlement (money, ledger, fan reaction, news) and AI bidding |
+| `board.ts` | Board and fan confidence, expectations, dismissal |
+| `news.ts` | The club news feed |
+| `save.ts` | Save lifecycle guards — `requireActiveManager()` |
+| `results-server.ts` | Server-side W/D/L helpers |
+
+**`shared/`** exists so the exact same rules run on both sides of the wire: the match engine (server) uses `shared/lineup.ts` to pick a CPU team's best XI, and the Dashboard lineup builder (client) imports the same module for position normalisation and slot counts; `shared/match-state.ts` does the same for live match state, so the engine, the API's rewind and the Matchday UI can never disagree about who is on the pitch. `shared/finance.ts` does it for money: the server totals ledger streams and the finance pages label them, and two copies of that map is exactly how "Commercial" comes to mean one thing on the overview and another on the projection. Nuxt exposes this directory automatically via the `#shared` import alias. See [match-engine.md](match-engine.md), [tactics.md](../functional/tactics.md) and [economy.md](economy.md).
 
 ---
 
@@ -71,9 +107,9 @@ football-pitch-tactics/
 
 1. **Browser navigates** to a URL (e.g. `/game`).
 2. **Nuxt router** matches the file in `app/pages/`.
-3. The **global middleware** `require-active-game.global.ts` runs before the component mounts; if no active save exists it redirects to `/new-game`.
-4. The **page component** mounts and calls `useFetch()` hooks which send `GET` requests to Nitro API routes under `/api/`.
-5. **Nitro handler** imports `db` from `server/db/index.ts` (a Drizzle client pointing at `db.sqlite`), runs the query, and returns JSON.
+3. The **global middleware** `require-active-game.global.ts` runs before the component mounts. No active save → `/new-game`; a save whose manager has been dismissed → `/game/dismissed`.
+4. The **page component** mounts and calls `useFetch()`/`useAsyncData()` hooks which send `GET` requests to Nitro API routes under `/api/`.
+5. **Nitro handler** imports `db` from `server/db/index.ts` (a Drizzle client pointing at `db.sqlite`), runs the query, and returns JSON. Routes that mutate the world first call `requireActiveManager()`, which `403`s on a dismissed save.
 6. The page renders with the data.
 
 ---
