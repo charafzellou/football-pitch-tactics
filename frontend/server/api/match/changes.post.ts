@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { matches } from '../../db/schema'
 import { insertEvents, syncToMinute } from '../../core/match-session'
+import { requireActiveManager } from '../../core/save'
 import { TACTICS } from '../../core/tactics'
 import type { SubstitutionRequest } from '#shared/match-state'
 import { applyMidMatchChanges } from '#shared/match-state'
@@ -27,10 +28,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Match not found' })
   }
 
-  const gameState = await db.query.game.findFirst()
-  if (!gameState) {
-    throw createError({ statusCode: 404, statusMessage: 'Game not found' })
-  }
+  const gameState = await requireActiveManager()
 
   // Only the player's own team can be managed mid-match — the CPU side
   // manages itself inside the engine.

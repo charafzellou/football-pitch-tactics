@@ -1,11 +1,14 @@
 import { db } from '../../../../server/db'
 import { players, teams } from '../../../../server/db/schema'
+import { requireActiveManager } from '../../../../server/core/save'
 import { LINEUP_SIZE, parseLineup } from '#shared/lineup'
 import { and, eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const teamId = Number(event.context.params?.id)
   const body = await readBody<{ lineup?: unknown }>(event)
+
+  await requireActiveManager()
 
   if (!teamId) {
     throw createError({

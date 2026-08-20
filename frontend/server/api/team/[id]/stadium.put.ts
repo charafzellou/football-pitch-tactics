@@ -9,6 +9,7 @@ import {
   expansionCost,
 } from '../../../core/economy'
 import { postLedger } from '../../../core/finance'
+import { requireActiveManager } from '../../../core/save'
 
 /**
  * Ticket price and stadium expansion.
@@ -25,8 +26,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Team id is required' })
   }
 
-  const gameState = await db.query.game.findFirst()
-  if (!gameState || gameState.playerTeamId !== teamId) {
+  const gameState = await requireActiveManager()
+  if (gameState.playerTeamId !== teamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }
 

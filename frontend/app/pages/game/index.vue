@@ -57,6 +57,33 @@ const { data: seasonStatus } = useAsyncData(
 )
 
 /**
+ * Board and fan confidence.
+ *
+ * Both meters, and the news rows explaining every movement in them, were
+ * written from the first matchday and displayed nowhere — so the one system
+ * that pushes back on the manager was invisible right up to the moment it
+ * ended their save. `board.ts` states the design goal as pressure that is
+ * always *explainable*; that requires it to be visible first.
+ */
+const { data: board } = useAsyncData('dashboard-board', () => $fetch<any>('/api/board'))
+
+/** The board is unhappy enough that the manager should know about it. */
+const boardWarning = computed(() => {
+  if (!board.value) return null
+
+  const { boardConfidence, warningThreshold, sackThreshold, confidenceStreak, sackStreak, sackingEnabled } = board.value
+  if (boardConfidence > warningThreshold) return null
+
+  if (boardConfidence <= sackThreshold && confidenceStreak > 0) {
+    return sackingEnabled
+      ? `Your position is under review — ${confidenceStreak} of ${sackStreak} matchdays without confidence.`
+      : 'The board has lost faith in you. Dismissal is disabled in this save.'
+  }
+
+  return 'The board has concerns about your results.'
+})
+
+/**
  * Standings and the opponent hang off `team`, which resolves asynchronously.
  * `useAsyncData`'s `watch` option proved unreliable for this — the dependency
  * is already populated by the time the watcher is installed, so no change ever
@@ -128,6 +155,50 @@ const selectedPositionCounts = computed<Record<LineupSlot, number>>(() => {
   }
   return counts
 })
+
+/** Every squad member per slot, and the subset of them fit to play. */
+const squadCountsBySlot = computed<Record<LineupSlot, number>>(() => {
+  const counts = { GK: 0, DF: 0, MF: 0, FW: 0 }
+  for (const player of squadPlayers.value) {
+    const position = normalizePosition(player.position)
+    if (position) counts[position]++
+  }
+  return counts
+})
+
+const availableCountsBySlot = computed<Record<LineupSlot, number>>(() => {
+  const counts = { GK: 0, DF: 0, MF: 0, FW: 0 }
+  for (const player of squadPlayers.value) {
+    if (!isAvailable(player)) continue
+    const position = normalizePosition(player.position)
+    if (position) counts[position]++
+  }
+  return counts
+})
+
+/**
+ * A line the squad cannot fill with fit players in the current formation.
+ *
+ * This is what decides whether an injured player becomes selectable. Every
+ * formation needs exactly one goalkeeper, so a club whose keepers are all
+ * injured could otherwise never name a legal XI — and since the Matchday button
+ * is gated on exactly that, no amount of rearranging or changing formation
+ * would ever re-enable it.
+ */
+function slotIsUnfillable(slot: LineupSlot): boolean {
+  return availableCountsBySlot.value[slot] < formationRequirements.value[slot]
+}
+
+/**
+ * Whether *any* formation can be filled from the squad at all, counting injured
+ * players as a last resort. False means the club is short of bodies in a slot
+ * outright — nothing the builder offers can produce a legal teamsheet, so the
+ * emergency path below is the only way out.
+ */
+const canFieldLegalXi = computed(() =>
+  tacticOptions.value.some(tactic =>
+    LINEUP_SLOT_ORDER.every(slot => squadCountsBySlot.value[slot] >= tactic.formation[slot])),
+)
 
 const pitchRows = computed(() =>
   PITCH_ROW_ORDER.map((position) => {
@@ -265,7 +336,15 @@ function selectionState(player: SquadPlayer) {
 
   if (!isAvailable(player)) {
     const matches = player.injuredMatches ?? 0
-    return { isSelected: false, canSelect: false, reason: `Injured for ${matches} more match${matches === 1 ? '' : 'es'}` }
+    const reason = `Injured for ${matches} more match${matches === 1 ? '' : 'es'}`
+
+    // Injury blocks selection only while a fit alternative for that line
+    // exists. Once it doesn't, fielding someone carrying a knock is the only
+    // legal teamsheet there is — the same call `autoSelectLineup` already
+    // makes for CPU clubs, and the alternative is a squad locked out of
+    // playing at all.
+    if (!position || !slotIsUnfillable(position))
+      return { isSelected: false, canSelect: false, reason }
   }
   if (!position)
     return { isSelected: false, canSelect: false, reason: 'Unknown position' }
@@ -478,6 +557,30 @@ async function goToMatchday() {
   if (ok) navigateTo('/matchday')
 }
 
+/**
+ * The way out when the squad is short of a position outright — no fit keeper,
+ * or fewer bodies in a line than any formation asks for.
+ *
+ * The gate above insists on slot counts matching exactly, which is right while
+ * the squad *can* meet them and a dead end once it can't: the fixture still has
+ * to be played, and there is no other route to Matchday. `autoSelectLineup` is
+ * the same fallback the engine applies to every CPU club — best fit players
+ * first, then whoever is left — so this fields the strongest legal side
+ * available rather than refusing to field one.
+ */
+async function fieldEmergencyXi() {
+  if (!team.value) return
+
+  const xi = autoSelectLineup(squadPlayers.value, selectedTacticDetails.value?.formation)
+  selectedPlayers.value = xi.map(player => player.id)
+
+  saving.value = true
+  const ok = await persistTeamSheet()
+  saving.value = false
+
+  if (ok) navigateTo('/matchday')
+}
+
 // ---------------------------------------------------------------------------
 // Squad table
 // ---------------------------------------------------------------------------
@@ -620,7 +723,7 @@ const lineupColumns = [
 
           <div class="grid grid-cols-2 gap-3">
             <div class="app-metric-card">
-              <div class="mb-1 flex items-center gap-1.5">
+              <div class="mb-1 flex items-center justify-center gap-1.5">
                 <UIcon name="i-lucide-trophy" class="size-3.5" style="color: var(--app-gold)" />
                 <p class="app-kicker text-[10px]">League Position</p>
               </div>
@@ -637,7 +740,7 @@ const lineupColumns = [
             </div>
 
             <div class="app-metric-card">
-              <div class="mb-1 flex items-center gap-1.5">
+              <div class="mb-1 flex items-center justify-center gap-1.5">
                 <UIcon name="i-lucide-wallet" class="size-3.5" style="color: var(--app-accent)" />
                 <p class="app-kicker text-[10px]">Bank Balance</p>
               </div>
@@ -649,7 +752,7 @@ const lineupColumns = [
             </div>
 
             <div class="app-metric-card">
-              <div class="mb-1 flex items-center gap-1.5">
+              <div class="mb-1 flex items-center justify-center gap-1.5">
                 <UIcon name="i-lucide-users" class="size-3.5" style="color: var(--app-text-muted)" />
                 <p class="app-kicker text-[10px]">Squad</p>
               </div>
@@ -660,13 +763,59 @@ const lineupColumns = [
             </div>
 
             <div class="app-metric-card">
-              <div class="mb-1 flex items-center gap-1.5">
+              <div class="mb-1 flex items-center justify-center gap-1.5">
                 <UIcon name="i-lucide-activity" class="size-3.5" style="color: var(--app-text-muted)" />
                 <p class="app-kicker text-[10px]">Recent Form</p>
               </div>
-              <FormGuide :form="ownForm" class="mt-1.5" />
+              <FormGuide :form="ownForm" class="mt-1.5 justify-center" />
+            </div>
+
+            <div v-if="board" class="app-metric-card">
+              <div class="mb-1.5 flex items-center justify-center gap-1.5">
+                <UIcon name="i-lucide-gavel" class="size-3.5" style="color: var(--app-text-muted)" />
+                <p class="app-kicker text-[10px]">Board</p>
+              </div>
+              <AppStatBar
+                :value="board.boardConfidence"
+                show-value
+                :tone="board.boardConfidence <= board.sackThreshold
+                  ? 'danger'
+                  : board.boardConfidence <= board.warningThreshold ? 'warning' : 'default'"
+              />
+            </div>
+
+            <div v-if="board" class="app-metric-card">
+              <div class="mb-1.5 flex items-center justify-center gap-1.5">
+                <UIcon name="i-lucide-heart" class="size-3.5" style="color: var(--app-text-muted)" />
+                <p class="app-kicker text-[10px]">Supporters</p>
+              </div>
+              <AppStatBar
+                :value="board.fanConfidence"
+                show-value
+                :tone="board.fanConfidence <= board.sackThreshold
+                  ? 'danger'
+                  : board.fanConfidence <= board.warningThreshold ? 'warning' : 'default'"
+              />
             </div>
           </div>
+
+          <template #footer>
+            <div class="space-y-1.5">
+              <p v-if="board" class="app-muted-text text-xs">
+                The board want you to <strong style="color: var(--app-text-soft)">{{ board.expectationText }}</strong>.
+              </p>
+              <p
+                v-if="boardWarning"
+                class="flex items-start gap-1.5 text-[11px] font-semibold"
+                :style="{ color: board.boardConfidence <= board.sackThreshold
+                  ? 'var(--app-player-sent-off)'
+                  : 'var(--app-player-booked)' }"
+              >
+                <UIcon name="i-lucide-circle-alert" class="mt-px size-3 shrink-0" />
+                {{ boardWarning }}
+              </p>
+            </div>
+          </template>
         </UCard>
 
         <!-- Season over: there is no next fixture, so point at the rollover. -->
@@ -763,6 +912,25 @@ const lineupColumns = [
                 :disabled="!lineupIsComplete"
                 @click="goToMatchday"
               />
+              <UButton
+                v-if="!canFieldLegalXi && !lineupIsComplete"
+                class="w-full justify-center"
+                size="lg"
+                color="warning"
+                variant="soft"
+                label="Field an emergency XI"
+                icon="i-lucide-triangle-alert"
+                :loading="saving"
+                @click="fieldEmergencyXi"
+              />
+              <p
+                v-if="!canFieldLegalXi"
+                class="text-[11px]"
+                style="color: var(--app-player-booked)"
+              >
+                Your squad is short in a position every formation needs. The best available eleven
+                will be picked for you.
+              </p>
               <ul v-if="readinessIssues.length" class="space-y-0.5">
                 <li
                   v-for="issue in readinessIssues"
@@ -874,7 +1042,7 @@ const lineupColumns = [
               <p class="app-kicker">Selected Squad Metrics</p>
               <div class="grid gap-2.5 sm:grid-cols-2">
                 <div v-for="metric in lineupMetrics" :key="metric.label" class="app-metric-card">
-                  <div class="mb-1 flex items-center gap-1.5">
+                  <div class="mb-1 flex items-center justify-center gap-1.5">
                     <UIcon :name="metric.icon" class="size-3.5" style="color: var(--app-text-muted)" />
                     <p class="app-kicker text-[10px]">{{ metric.label }}</p>
                   </div>

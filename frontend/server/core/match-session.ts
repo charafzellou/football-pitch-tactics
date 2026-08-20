@@ -43,6 +43,8 @@ export async function buildTeam(teamId: number, tacticName: string | null | unde
     tactic,
     lineupIds,
     autoManaged: teamRow.id !== playerTeamId,
+    // Read for every club; only ever applied when they are the home side.
+    pitchCondition: teamRow.pitchCondition,
   }
 }
 

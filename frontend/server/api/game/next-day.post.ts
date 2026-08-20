@@ -1,16 +1,10 @@
 import { db } from '../../../server/db'
 import { game } from '../../../server/db/schema'
+import { requireActiveManager } from '../../../server/core/save'
 import { eq } from 'drizzle-orm'
 
-export default defineEventHandler(async (event) => {
-  const gameState = await db.query.game.findFirst()
-
-  if (!gameState) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: 'Game not found',
-    })
-  }
+export default defineEventHandler(async () => {
+  const gameState = await requireActiveManager()
 
   const newDate = new Date(gameState.currentDate)
   newDate.setDate(newDate.getDate() + 1)

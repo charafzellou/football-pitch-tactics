@@ -26,7 +26,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db'
 import { financeLedger, game, matches } from '../db/schema'
-import { fairTicketPrice } from './economy'
+import { RUNNING_COST_TYPES, fairTicketPrice } from './economy'
 import { leagueStandingFor } from './finance'
 import { postNews } from './news'
 import type { NewsItem } from './news'
@@ -329,6 +329,22 @@ export async function settleBoardForMatchday(): Promise<BoardState | null> {
     .filter(entry => entry.type === 'wages')
     .reduce((total, entry) => total + Math.abs(entry.amount), 0)
 
+  /**
+   * Running the club is netted off before the ratio is taken.
+   *
+   * The manager's club is the only one carrying itemised operating costs,
+   * upkeep and debt service, and its commercial income is grossed up to fund
+   * them (`COMMERCIAL_UPLIFT`). Measuring wages against that gross figure would
+   * report a ratio around six points kinder than every CPU club's, for nothing
+   * the manager did — and six points is most of the distance to the 85% the
+   * board starts punishing at.
+   */
+  const runningCosts = entries
+    .filter(entry => (RUNNING_COST_TYPES as readonly string[]).includes(entry.type))
+    .reduce((total, entry) => total + Math.abs(entry.amount), 0)
+
+  const turnover = income - runningCosts
+
   const news: NewsItem[] = []
 
   const state = await db.transaction(tx => settleMatchday(tx, {
@@ -341,7 +357,7 @@ export async function settleBoardForMatchday(): Promise<BoardState | null> {
       leagueSize: standing.leagueSize,
       formRating: standing.formRating,
       bankBalance: standing.club.bankBalance,
-      wageRatio: income > 0 ? Math.round((wages / income) * 100) : null,
+      wageRatio: turnover > 0 ? Math.round((wages / turnover) * 100) : null,
       roundsPlayed,
       totalRounds,
       ticketPrice: standing.club.ticketPrice,

@@ -1,7 +1,23 @@
 import { db } from '../../server/db'
 import { game, matches } from '../../server/db/schema'
-import { or, eq, and, gte, isNull } from 'drizzle-orm'
+import { or, eq, and, isNull } from 'drizzle-orm'
 
+/**
+ * The player's fixture list.
+ *
+ * "Upcoming" deliberately means *unplayed*, not *dated in the future*. It used
+ * to carry `matchDate >= game.currentDate` as well, which coupled the one list
+ * the dashboard and Matchday steer by to the virtual calendar — and any drift
+ * between the two silently emptied it. A new save set `currentDate` to the real
+ * wall clock while season 1 is dated from a fixed 2024 start, so every fixture
+ * read as already past: the dashboard rendered Club Status with nothing beside
+ * it (no Next Match card, no Go to Matchday) and the save was unplayable from
+ * the first minute.
+ *
+ * `played` is the only thing that decides whether a fixture still has to be
+ * played, so it is the only thing filtered on. The calendar keeps its own job —
+ * deciding which *other* clubs' fixtures are due for headless resolution.
+ */
 export default defineEventHandler(async (event) => {
   const gameState = await db.query.game.findFirst()
   if (!gameState) {
@@ -24,7 +40,6 @@ export default defineEventHandler(async (event) => {
       ? teamFilter
       : and(
           teamFilter,
-          gte(matches.matchDate, gameState.currentDate),
           isNull(matches.homeScore),
           eq(matches.played, 0),
         ),

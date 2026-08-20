@@ -3,6 +3,7 @@ import { db } from '../../db'
 import { matches } from '../../db/schema'
 import { simulateSegment } from '../../core/match-engine'
 import { buildTeam, insertEvents, syncToMinute } from '../../core/match-session'
+import { requireActiveManager } from '../../core/save'
 import { nextBreakAfter } from '#shared/match-state'
 
 export default defineEventHandler(async (event) => {
@@ -19,10 +20,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Match not found' })
   }
 
-  const gameState = await db.query.game.findFirst()
-  if (!gameState) {
-    throw createError({ statusCode: 404, statusMessage: 'Game not found' })
-  }
+  const gameState = await requireActiveManager()
 
   // Rewind to the minute the client actually reached, discarding anything
   // simulated past it — this is what lets a pause change the outcome.

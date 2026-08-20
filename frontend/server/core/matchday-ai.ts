@@ -17,6 +17,7 @@ import { buildTeam, insertEvents } from './match-session'
 import { kickOff, simulateSegment } from './match-engine'
 import { buildMatchdayContext, settleMatchFinances } from './finance'
 import type { MatchdayContext } from './finance'
+import { injuryRecoveryChance, trainingRecoveryBonus } from './progression'
 import type { MatchState } from '#shared/match-state'
 import {
   INJURY_MATCHES_MAX,
@@ -57,22 +58,41 @@ export async function settleMatchFitness(tx: Tx, state: MatchState): Promise<voi
 
   const current = await tx.query.players.findMany({ where: inArray(players.id, ids) })
 
+  /**
+   * The training grounds these players go back to.
+   *
+   * Recovery is the one facility effect a manager feels inside a season, so it
+   * has to be read per club rather than assumed — and it is read once for the
+   * two clubs involved rather than once per player.
+   */
+  const teamIds = [...new Set(current.map(player => player.teamId))]
+  const clubs = teamIds.length
+    ? await tx.query.teams.findMany({ where: inArray(teams.id, teamIds) })
+    : []
+  const trainingByTeam = new Map(clubs.map(club => [club.id, club.trainingLevel]))
+
   for (const player of current) {
     const stamina = staminaByPlayer.get(player.id)
     if (stamina === undefined)
       continue
 
+    const trainingLevel = trainingByTeam.get(player.teamId) ?? 1
+
     // A player already sitting out counts this match against their absence;
-    // a fresh injury starts a new one.
+    // a fresh injury starts a new one. A good physio department sometimes takes
+    // an extra match off an existing absence, never off a new one.
+    const healed = 1 + (Math.random() < injuryRecoveryChance(trainingLevel) ? 1 : 0)
     const injuredMatches = newlyInjured.has(player.id)
       ? INJURY_MATCHES_MIN + Math.floor(Math.random() * (INJURY_MATCHES_MAX - INJURY_MATCHES_MIN + 1))
-      : Math.max(0, (player.injuredMatches ?? 0) - 1)
+      : Math.max(0, (player.injuredMatches ?? 0) - healed)
 
     // `players.stamina` is written as the value the player will *start* their
     // next match with, so the lineup builder shows the truth rather than a
     // pre-recovery number the engine would silently improve at kickoff.
+    const recovered = recoveredStamina(stamina) + trainingRecoveryBonus(trainingLevel)
+
     await tx.update(players)
-      .set({ stamina: Math.round(recoveredStamina(stamina)), injuredMatches })
+      .set({ stamina: Math.round(Math.min(100, recovered)), injuredMatches })
       .where(eq(players.id, player.id))
   }
 }

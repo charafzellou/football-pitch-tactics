@@ -1,6 +1,6 @@
-import { db } from '../../db'
 import { rollOverSeason } from '../../core/season'
 import { resolveFixturesUpTo } from '../../core/matchday-ai'
+import { requireActiveManager } from '../../core/save'
 
 /**
  * Ends the season and starts the next one.
@@ -11,10 +11,7 @@ import { resolveFixturesUpTo } from '../../core/matchday-ai'
  * missing.
  */
 export default defineEventHandler(async () => {
-  const gameState = await db.query.game.findFirst()
-  if (!gameState) {
-    throw createError({ statusCode: 400, statusMessage: 'No active save' })
-  }
+  const gameState = await requireActiveManager()
 
   // Far-future date: resolve everything left, regardless of when it was
   // scheduled.

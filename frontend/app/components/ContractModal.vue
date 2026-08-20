@@ -28,6 +28,7 @@ interface ContractInfo {
     contractUntilSeason: number
   }
   season: number
+  freeAgent: boolean
   seasonsRemaining: number
   expiring: boolean
   baseDemand: number
@@ -35,11 +36,17 @@ interface ContractInfo {
   options: DemandOption[]
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** Player to negotiate with, or null to close. */
   playerId: number | null
   teamId: number | null
-}>()
+  /**
+   * `renew` extends a player already at the club; `sign` takes on a free agent.
+   * The demand curve is priced identically either way — only the endpoint that
+   * commits it differs — so both go through this one panel.
+   */
+  mode?: 'renew' | 'sign'
+}>(), { mode: 'renew' })
 
 const emit = defineEmits<{ close: []; renewed: [] }>()
 
@@ -100,6 +107,32 @@ const totalCost = computed(() => wage.value * 38 * seasons.value)
 
 const currentPerSeason = computed(() => (info.value?.player.wage ?? 0) * 38)
 
+const { projection } = useFinanceProjection()
+
+/**
+ * What this offer does to the wage bill, against what the club can carry.
+ *
+ * Shown live as the slider moves, because the moment the figure matters is
+ * while it is being chosen. It is advice: the offer goes through either way —
+ * only the player can refuse it, never the budget.
+ */
+const wageHeadroom = computed(() => {
+  const budget = projection.value?.wageBudget
+  if (!budget) return null
+
+  // Renewing replaces the player's existing wage; signing adds to the bill.
+  const delta = wage.value - (props.mode === 'sign' ? 0 : (info.value?.player.wage ?? 0))
+  const after = budget.current + delta
+
+  return {
+    after,
+    healthy: budget.healthy,
+    ceiling: budget.ceiling,
+    remaining: budget.healthy - after,
+    overCeiling: after > budget.ceiling,
+  }
+})
+
 watch(seasons, (length) => {
   rejection.value = null
   // Follow the demand curve unless the manager has deliberately set a figure.
@@ -119,20 +152,27 @@ async function submit() {
   rejection.value = null
 
   try {
-    const result = await $fetch<{ accepted: boolean; reason: string; required: number; contractUntilSeason?: number }>(
-      `/api/team/${props.teamId}/contract`,
-      { method: 'PUT', body: { playerId: info.value.player.id, wage: wage.value, seasons: seasons.value } },
-    )
+    const result = props.mode === 'sign'
+      ? await $fetch<{ accepted: boolean; reason?: string; required?: number; contractUntilSeason?: number }>(
+          '/api/transfers',
+          { method: 'POST', body: { playerId: info.value.player.id, action: 'sign', wage: wage.value, seasons: seasons.value } },
+        )
+      : await $fetch<{ accepted: boolean; reason?: string; required?: number; contractUntilSeason?: number }>(
+          `/api/team/${props.teamId}/contract`,
+          { method: 'PUT', body: { playerId: info.value.player.id, wage: wage.value, seasons: seasons.value } },
+        )
 
     if (!result.accepted) {
-      rejection.value = result.reason
+      rejection.value = result.reason ?? 'He turned the offer down.'
       sfx.play('error')
       return
     }
 
     sfx.play('success')
     toast.success({
-      title: `${info.value.player.name} re-signs`,
+      title: props.mode === 'sign'
+        ? `${info.value.player.name} signs on a free`
+        : `${info.value.player.name} re-signs`,
       description: `${formatMoney(wage.value)} per matchday until season ${result.contractUntilSeason}.`,
     })
     emit('renewed')
@@ -151,7 +191,9 @@ async function submit() {
   <UModal
     :open="open"
     :title="info ? `Contract talks — ${info.player.name}` : 'Contract talks'"
-    description="Offer a wage and a contract length"
+    :description="mode === 'sign'
+      ? 'Sign him on a free transfer — agree a wage and a length'
+      : 'Offer a wage and a contract length'"
     :ui="{ content: 'sm:max-w-lg' }"
     @update:open="value => !value && emit('close')"
   >
@@ -172,6 +214,14 @@ async function submit() {
                 <AppPositionBadge :position="info.player.position" size="xs" />
                 <span class="app-muted-text text-xs">{{ info.player.age }} years old</span>
                 <span
+                  v-if="info.freeAgent"
+                  class="app-chip app-chip--success"
+                >
+                  <UIcon name="i-lucide-user-round-check" class="size-3" />
+                  Free agent — no fee
+                </span>
+                <span
+                  v-else
                   class="app-chip"
                   :class="info.expiring ? 'app-chip--danger' : undefined"
                 >
@@ -246,13 +296,13 @@ async function submit() {
 
           <!-- What it costs -->
           <dl class="app-surface-subtle mt-4 space-y-1.5 p-3 text-sm">
-            <div class="flex items-center justify-between gap-4">
+            <div v-if="!info.freeAgent" class="flex items-center justify-between gap-4">
               <dt class="app-muted-text">Current wage</dt>
               <dd class="font-semibold" style="color: var(--app-text)">
                 {{ formatMoney(info.player.wage) }} <span class="app-muted-text text-xs">/ matchday</span>
               </dd>
             </div>
-            <div class="flex items-center justify-between gap-4">
+            <div v-if="!info.freeAgent" class="flex items-center justify-between gap-4">
               <dt class="app-muted-text">Change per season</dt>
               <dd
                 class="font-semibold tabular-nums"
@@ -261,11 +311,37 @@ async function submit() {
                 {{ wage * 38 > currentPerSeason ? '+' : '' }}{{ formatMoney(wage * 38 - currentPerSeason) }}
               </dd>
             </div>
+            <div v-if="info.freeAgent" class="flex items-center justify-between gap-4">
+              <dt class="app-muted-text">Transfer fee</dt>
+              <dd class="font-semibold" style="color: var(--app-accent)">None</dd>
+            </div>
             <div class="flex items-center justify-between gap-4">
               <dt class="app-muted-text">Total commitment</dt>
               <dd class="font-bold" style="color: var(--app-accent)">{{ formatMoney(totalCost) }}</dd>
             </div>
+            <div v-if="wageHeadroom" class="flex items-center justify-between gap-4">
+              <dt class="app-muted-text">Wage bill after this</dt>
+              <dd
+                class="font-semibold tabular-nums"
+                :style="{
+                  color: wageHeadroom.overCeiling ? 'var(--app-player-sent-off)'
+                    : wageHeadroom.remaining < 0 ? 'var(--app-player-booked)' : 'var(--app-accent)',
+                }"
+              >
+                {{ formatMoney(wageHeadroom.after) }}/md
+              </dd>
+            </div>
           </dl>
+
+          <p
+            v-if="wageHeadroom && wageHeadroom.remaining < 0"
+            class="app-muted-text mt-2 text-[11px]"
+            :style="{ color: wageHeadroom.overCeiling ? 'var(--app-player-sent-off)' : 'var(--app-player-booked)' }"
+          >
+            {{ wageHeadroom.overCeiling
+              ? `Past the ${formatMoney(wageHeadroom.ceiling)} a matchday the board starts objecting to.`
+              : `${formatMoney(-wageHeadroom.remaining)} a matchday above a comfortable bill — allowed, but it comes out of next season.` }}
+          </p>
 
           <p
             v-if="rejection"
@@ -279,7 +355,7 @@ async function submit() {
           <div class="mt-5 flex justify-end gap-2">
             <UButton label="Walk away" color="neutral" variant="soft" @click="emit('close')" />
             <UButton
-              label="Offer contract"
+              :label="mode === 'sign' ? 'Sign him' : 'Offer contract'"
               icon="i-lucide-file-signature"
               :class="meetsDemand && 'app-glow'"
               :loading="submitting"

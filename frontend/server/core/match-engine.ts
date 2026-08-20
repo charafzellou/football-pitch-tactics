@@ -14,6 +14,7 @@ import {
 } from '#shared/match-state'
 
 export type { MatchEvent } from '#shared/match-state'
+import { pitchInjuryScaleFor, pitchPenaltyFor } from './economy'
 
 // Types for tactics and players
 export interface Tactic {
@@ -44,6 +45,15 @@ export interface Team {
   lineupIds?: number[] | null
   /** CPU-controlled clubs manage their own substitutions during the match. */
   autoManaged?: boolean
+  /**
+   * Pitch quality 0–100 at this club's ground.
+   *
+   * Only ever applied to the **home** side, in `simulateSegment`. It is their
+   * ground and their decision: a club that sold three concert dates took the
+   * money, so it takes the goalmouth too. The visitors are simply playing on
+   * what they are given.
+   */
+  pitchCondition?: number
 }
 
 const MATCH_MINUTES = 90
@@ -162,14 +172,19 @@ const AI_UPGRADE_MARGIN = 2
  * side roughly a eleventh of its rating (~7-8 points, against MAX_EDGE 12),
  * which is what being a man down should feel like. A full XI is unchanged.
  */
-function calculateTeamStats(onPitch: Player[], stamina: Record<number, number>, tactic: Tactic) {
+function calculateTeamStats(
+  onPitch: Player[],
+  stamina: Record<number, number>,
+  tactic: Tactic,
+  pitchPenalty = 0,
+) {
   if (!onPitch.length)
     return { attack: 0, defence: 0 }
 
   const avgSkill = onPitch.reduce((acc, p) => acc + effectiveSkill(p.skillLevel, stamina[p.id] ?? 100), 0) / LINEUP_SIZE
   return {
-    attack: avgSkill + tactic.modifiers.attack,
-    defence: avgSkill + tactic.modifiers.defence,
+    attack: avgSkill + tactic.modifiers.attack - pitchPenalty,
+    defence: avgSkill + tactic.modifiers.defence - pitchPenalty,
   }
 }
 
@@ -275,6 +290,18 @@ export function simulateSegment(
   const awaySquad = squadMapFor(awayTeam)
   const events: MatchEvent[] = []
 
+  /**
+   * A worn pitch costs the home side rating, and costs everybody ankles.
+   *
+   * The rating penalty is the home club's alone — it is their ground, their
+   * decision to hire it out, and their money from doing so. The injury uplift is
+   * not: a cut-up goalmouth does not know who booked the concert, and both sides
+   * spend ninety minutes on it.
+   */
+  const pitchCondition = homeTeam.pitchCondition ?? 100
+  const homePitchPenalty = pitchPenaltyFor(pitchCondition)
+  const pitchInjuryScale = pitchInjuryScaleFor(pitchCondition)
+
   let current = state
 
   const onPitchPlayers = (side: MatchSideState, squad: Map<number, Player>) =>
@@ -314,7 +341,7 @@ export function simulateSegment(
 
     const homeOnPitch = onPitchPlayers(working.home, homeSquad)
     const awayOnPitch = onPitchPlayers(working.away, awaySquad)
-    const homeStats = calculateTeamStats(homeOnPitch, working.home.stamina, homeTeam.tactic)
+    const homeStats = calculateTeamStats(homeOnPitch, working.home.stamina, homeTeam.tactic, homePitchPenalty)
     const awayStats = calculateTeamStats(awayOnPitch, working.away.stamina, awayTeam.tactic)
 
     /** How far a side's attack out-rates the opponent's defence, damped. */
@@ -346,7 +373,7 @@ export function simulateSegment(
       minuteEvents.push({ minute, eventType, teamId: side.teamId, playerId: player.id })
     }
 
-    switch (drawKind()) {
+    switch (drawKind(pitchInjuryScale)) {
       case 'shotAttempt': {
         const shooter = pickPlayer(attackOnPitch, SHOOTING_WEIGHTS)
         if (shooter) {
@@ -412,12 +439,22 @@ export function simulateSegment(
   return { state: current, events }
 }
 
-/** A single categorical draw: the first type whose rate the ticket falls within wins. */
-function drawKind(): EventKind | null {
+/**
+ * A single categorical draw: the first type whose rate the ticket falls within
+ * wins.
+ *
+ * `injuryScale` inflates the injury bucket alone. The extra probability comes
+ * out of the empty remainder of the ticket — the minutes in which nothing
+ * happens — so no other event type becomes less likely and none of the
+ * calibration above is disturbed. At the worst pitch this moves the injury rate
+ * from 0.21 to 0.29 a match against a total of ~45 events, which is why it is
+ * safe to do here rather than by rebuilding the draw table.
+ */
+function drawKind(injuryScale = 1): EventKind | null {
   let ticket = Math.random() * MATCH_MINUTES
 
   for (const [kind, rate] of EVENT_DRAW) {
-    ticket -= rate
+    ticket -= kind === 'injury' ? rate * injuryScale : rate
     if (ticket < 0)
       return kind
   }

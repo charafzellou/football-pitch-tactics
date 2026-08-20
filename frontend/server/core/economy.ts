@@ -42,7 +42,44 @@ export const LEDGER_TYPES = [
   'transfer_in',
   'transfer_out',
   'stadium',
+  'merchandising',
+  'perimeter',
+  'hospitality',
+  'operating',
+  'facilities',
+  'event_hire',
+  'season_tickets',
+  'loan_in',
+  'loan_repayment',
+  'interest',
+  'bonus',
 ] as const
+
+/** Entry types that credit a club. Everything else debits it. */
+export const INCOME_LEDGER_TYPES = [
+  'gate',
+  'sponsorship',
+  'prize',
+  'transfer_out',
+  'merchandising',
+  'perimeter',
+  'hospitality',
+  'event_hire',
+  'season_tickets',
+  'loan_in',
+  'bonus',
+] as const
+
+/**
+ * Running costs — the money it takes to be the club, as opposed to wages,
+ * transfer fees and capital works.
+ *
+ * Named because the wage ratio the board judges has to be measured against
+ * income *after* them. Without that subtraction the manager's club, which is
+ * the only one carrying itemised running costs, would report a ratio six points
+ * kinder than every CPU club's for no reason the manager did anything to earn.
+ */
+export const RUNNING_COST_TYPES = ['operating', 'facilities', 'interest', 'loan_repayment'] as const
 
 export type LedgerType = (typeof LEDGER_TYPES)[number]
 
@@ -300,6 +337,450 @@ export function prizeMoneyFor(reputation: number, position: number, leagueSize: 
   const pool = 4_000_000 + (reputation / 100) * 10_000_000
 
   return Math.round(pool * (0.35 + share * 1.3))
+}
+
+// ---------------------------------------------------------------------------
+// The commercial pool
+// ---------------------------------------------------------------------------
+
+/**
+ * Commercial income stops being one number and becomes a portfolio.
+ *
+ * `sponsorshipFor()` above is a single opaque credit with no decision attached
+ * to it. Everything below splits that figure into named streams the chairman
+ * can actually move — and pays for the running costs the club never used to
+ * have — **without reflating the league**.
+ *
+ * ## The invariant
+ *
+ * At default settings (market-rate partners, no naming-rights deal, level-0
+ * hoardings, no boxes, no events, no season tickets, no debt) a club's
+ * per-matchday **net** must equal what it nets today. Every venture below is
+ * opt-in upside bought with capital, fan goodwill or pitch condition.
+ *
+ * That is why the pool is `sponsorshipFor() * COMMERCIAL_UPLIFT` rather than
+ * `sponsorshipFor()`: the uplift funds the new cost lines exactly, and is
+ * *derived* from them rather than picked. `scripts/verify-economy.ts` fails if
+ * the median club's net moves more than 5%.
+ *
+ * Simply adding six income streams on top was the obvious first attempt and is
+ * the thing to never do here: club income would roughly double, the 45–75%
+ * wage ratio this whole economy is tuned around would collapse to the low
+ * thirties, and every transfer fee and contract demand — all priced against
+ * balances — would become meaningless within a season.
+ */
+
+/** Share of a full ground the average home match actually draws. Measured. */
+const REFERENCE_FILL = 0.76
+
+/**
+ * The gap between a typical squad's best player and its median one, measured
+ * across the seeded league. Merchandising is priced against this so an ordinary
+ * squad scores neutral and only a genuine marquee name moves the shop.
+ */
+const REFERENCE_STAR_GAP = 14
+
+/** Shares of the pool. These sum to exactly 1 — that is the point of them. */
+export const COMMERCIAL_SHARES = {
+  shirt: 0.38,
+  kitMaker: 0.22,
+  sleeve: 0.09,
+  perimeter: 0.13,
+  merchandising: 0.18,
+} as const
+
+/**
+ * Naming rights sit *outside* the 100%: a club that has never sold its ground's
+ * name earns nothing here, which is what makes selling it a real gain rather
+ * than a rearrangement.
+ */
+export const NAMING_RIGHTS_SHARE = 0.12
+
+/** Matchday running costs, as a share of the pool. */
+const OPERATING_BASE = 0.10
+const OPERATING_VARIABLE = 0.16
+
+/** Upkeep per facility level per matchday, as a share of the pool. */
+export const FACILITY_UPKEEP_SHARE = 0.028
+
+export const MAX_FACILITY_LEVEL = 3
+export const DEFAULT_FACILITY_LEVEL = 1
+
+/** Opening terms for season tickets, before the chairman touches them. */
+export const DEFAULT_SEASON_TICKET_DISCOUNT = 20
+export const MAX_SEASON_TICKET_SHARE = 45
+export const MAX_SEASON_TICKET_DISCOUNT = 35
+
+/**
+ * What a default club spends running itself each matchday, as a share of its
+ * pool: half a matchday's operating cost (only home games incur one) plus
+ * upkeep on an academy and a training ground at their opening level.
+ */
+const DEFAULT_COST_SHARE
+  = (OPERATING_BASE + OPERATING_VARIABLE * REFERENCE_FILL) / 2
+    + FACILITY_UPKEEP_SHARE * DEFAULT_FACILITY_LEVEL * 2
+
+/**
+ * Gross the pool up so that pool − costs lands back on `sponsorshipFor()`.
+ *
+ * Solved, not tuned: income `P` net of costs `P·c` must equal the old figure
+ * `S`, so `P = S / (1 − c)`.
+ */
+export const COMMERCIAL_UPLIFT = 1 / (1 - DEFAULT_COST_SHARE)
+
+/**
+ * The club's total commercial earning power for one matchday, before it is
+ * divided between partners, hoardings and the club shop.
+ */
+export function commercialPoolFor(reputation: number, position: number, leagueSize: number): number {
+  return Math.round(sponsorshipFor(reputation, position, leagueSize) * COMMERCIAL_UPLIFT)
+}
+
+/** What a partner pays per matchday for each slot, at the market rate. */
+export function slotValueFor(pool: number, slot: CommercialSlot): number {
+  switch (slot) {
+    case 'shirt': return Math.round(pool * COMMERCIAL_SHARES.shirt)
+    case 'kit_maker': return Math.round(pool * COMMERCIAL_SHARES.kitMaker)
+    case 'sleeve': return Math.round(pool * COMMERCIAL_SHARES.sleeve)
+    case 'naming_rights': return Math.round(pool * NAMING_RIGHTS_SHARE)
+  }
+}
+
+export const COMMERCIAL_SLOTS = ['shirt', 'kit_maker', 'sleeve', 'naming_rights'] as const
+export type CommercialSlot = (typeof COMMERCIAL_SLOTS)[number]
+
+export const SLOT_LABELS: Record<CommercialSlot, string> = {
+  shirt: 'Shirt sponsor',
+  kit_maker: 'Kit manufacturer',
+  sleeve: 'Sleeve sponsor',
+  naming_rights: 'Stadium naming rights',
+}
+
+// ---------------------------------------------------------------------------
+// Perimeter advertising
+// ---------------------------------------------------------------------------
+
+/**
+ * Charged on home matchdays only — the boards are at your ground — so the share
+ * is doubled to leave the season total identical to an every-matchday stream.
+ */
+const PERIMETER_HOME_MULTIPLIER = 2
+
+export interface PerimeterTier {
+  level: number
+  name: string
+  multiplier: number
+}
+
+/** Advertising boards as a capital ladder. */
+export const PERIMETER_TIERS: PerimeterTier[] = [
+  { level: 0, name: 'Static hoardings', multiplier: 1 },
+  { level: 1, name: 'LED boards', multiplier: 1.45 },
+  { level: 2, name: 'Premium LED', multiplier: 1.9 },
+  { level: 3, name: 'Full-wrap digital', multiplier: 2.4 },
+]
+
+/**
+ * Seasons a capital upgrade should take to earn back what it cost.
+ *
+ * Long enough that it competes with a signing for the same money, short enough
+ * that a chairman can see the point. Flat upgrade prices were tried first and
+ * are the trap here: because commercial income scales with reputation to the
+ * power of 3.2, one price bought a giant a nine-month payback and a small club
+ * a five-year one — the same button being a free lunch at one end of the table
+ * and a mistake at the other.
+ */
+export const CAPITAL_PAYBACK_SEASONS = 2.2
+
+export const MAX_PERIMETER_LEVEL = PERIMETER_TIERS.length - 1
+
+export function perimeterTier(level: number): PerimeterTier {
+  return PERIMETER_TIERS[clamp(Math.round(level), 0, MAX_PERIMETER_LEVEL)]!
+}
+
+/**
+ * Capital cost of the next tier of boards, priced off what that tier adds.
+ *
+ * Solved from the payback target rather than picked, so every club faces the
+ * same decision on the same terms.
+ */
+export function perimeterUpgradeCost(pool: number, level: number): number {
+  const current = perimeterTier(level).multiplier
+  const next = perimeterTier(level + 1).multiplier
+  const step = next - current
+  if (step <= 0) return 0
+
+  const gainPerSeason = pool * COMMERCIAL_SHARES.perimeter * PERIMETER_HOME_MULTIPLIER
+    * step * (MATCHDAYS_PER_SEASON / 2)
+
+  return Math.round(gainPerSeason * CAPITAL_PAYBACK_SEASONS / 50_000) * 50_000
+}
+
+/**
+ * Advertisers pay for eyeballs, so a full ground and a high league position are
+ * both worth more. Neutral at the reference fill and mid-table.
+ */
+export function perimeterIncomeFor(
+  pool: number,
+  level: number,
+  fillRate: number,
+  position: number,
+  leagueSize: number,
+): number {
+  const audience = 0.72 + clamp(fillRate / REFERENCE_FILL, 0, 1.4) * 0.28
+  const standing = 0.9 + (1 - (position - 1) / Math.max(1, leagueSize - 1)) * 0.2
+
+  return Math.round(
+    pool * COMMERCIAL_SHARES.perimeter * PERIMETER_HOME_MULTIPLIER
+    * perimeterTier(level).multiplier * audience * standing,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Merchandising
+// ---------------------------------------------------------------------------
+
+/**
+ * The club shop. Driven by how the support feels and by whether there is anyone
+ * in the squad worth putting on the back of a shirt.
+ *
+ * The star term is the interesting one: a marquee signing measurably pays part
+ * of his own fee back, and does it visibly, from the matchday after he arrives.
+ */
+export function merchandisingFor(pool: number, fanConfidence: number, starPower: number): number {
+  // 1.0 at the default 65 confidence.
+  const support = 0.72 + clamp(fanConfidence, 0, 100) / 100 * 0.43
+  // 1.0 for a squad whose best player leads it by the league-typical margin.
+  const star = 1 + clamp(starPower, -8, 14) / 14 * 0.30
+
+  return Math.round(pool * COMMERCIAL_SHARES.merchandising * support * star)
+}
+
+/**
+ * How far a squad's best player stands above its median, relative to what an
+ * ordinary squad manages. Zero is typical; positive is a genuine star.
+ */
+export function starPowerOf(squad: { skillLevel: number }[]): number {
+  if (squad.length < 5) return 0
+
+  const skills = squad.map(player => player.skillLevel).sort((a, b) => a - b)
+  const median = skills[Math.floor(skills.length / 2)]!
+
+  return skills[skills.length - 1]! - median - REFERENCE_STAR_GAP
+}
+
+// ---------------------------------------------------------------------------
+// Corporate hospitality
+// ---------------------------------------------------------------------------
+
+export const HOSPITALITY_BOX_SEATS = 12
+export const HOSPITALITY_BOX_COST = 300_000
+export const MAX_HOSPITALITY_BOXES = 60
+
+/** What a box seat is worth against an ordinary one, catering included. */
+const HOSPITALITY_SEAT_MULTIPLIER = 14
+
+/**
+ * Boxes are the one seat in the ground that does not care what the ticket price
+ * is, so they are how a chairman de-risks gate income — bought with capital and
+ * with the general-admission seats they replace.
+ */
+export function hospitalityIncomeFor(
+  boxes: number,
+  reputation: number,
+  opponentReputation: number,
+): number {
+  if (boxes <= 0) return 0
+
+  const draw = 0.9 + (clamp(opponentReputation, 0, 100) / 100) * 0.2
+
+  return Math.round(
+    boxes * HOSPITALITY_BOX_SEATS * fairTicketPrice(reputation) * HOSPITALITY_SEAT_MULTIPLIER * draw,
+  )
+}
+
+/** Seats a box takes out of general admission. */
+export function seatsLostToBoxes(boxes: number): number {
+  return Math.max(0, Math.round(boxes)) * HOSPITALITY_BOX_SEATS
+}
+
+// ---------------------------------------------------------------------------
+// Non-matchday events
+// ---------------------------------------------------------------------------
+
+export const EVENT_KINDS = ['concert', 'international', 'rugby', 'conference', 'community'] as const
+export type StadiumEventKind = (typeof EVENT_KINDS)[number]
+
+export interface EventProfile {
+  kind: StadiumEventKind
+  label: string
+  /** Multiple of one full-price gate. */
+  feeMultiple: number
+  /** Points of pitch condition the event costs. */
+  wear: number
+  /** How supporters feel about it. */
+  fanReaction: number
+  description: string
+}
+
+/**
+ * What a promoter can be sold a free week for.
+ *
+ * The money and the damage move together on purpose. A concert is the best
+ * cheque anyone will write for the ground and it leaves the pitch in a state;
+ * a conference pays little and touches nothing but the concourse. If the
+ * lucrative options were also harmless there would be no decision to make, only
+ * a button to press every week.
+ */
+export const EVENT_PROFILES: Record<StadiumEventKind, EventProfile> = {
+  concert: {
+    kind: 'concert',
+    label: 'Stadium concert',
+    feeMultiple: 1.6,
+    wear: 22,
+    fanReaction: 0,
+    description: 'A weekend of staging on the centre circle.',
+  },
+  international: {
+    kind: 'international',
+    label: 'International fixture',
+    feeMultiple: 1.1,
+    wear: 14,
+    fanReaction: 2,
+    description: 'The national side borrows the ground.',
+  },
+  rugby: {
+    kind: 'rugby',
+    label: 'Rugby match',
+    feeMultiple: 0.85,
+    wear: 18,
+    fanReaction: -1,
+    description: 'Eighty minutes of scrums where your goalmouth is.',
+  },
+  conference: {
+    kind: 'conference',
+    label: 'Corporate conference',
+    feeMultiple: 0.25,
+    wear: 0,
+    fanReaction: 0,
+    description: 'Concourse and boxes only. The pitch never sees them.',
+  },
+  community: {
+    kind: 'community',
+    label: 'Community day',
+    feeMultiple: 0.1,
+    wear: 0,
+    fanReaction: 4,
+    description: 'Open doors, little money, and goodwill that lasts.',
+  },
+}
+
+/** What a promoter pays, sized against what a full house is worth. */
+export function eventFeeFor(kind: StadiumEventKind, capacity: number, reputation: number): number {
+  const fullHouse = capacity * fairTicketPrice(reputation) * 0.75
+  return Math.round(fullHouse * EVENT_PROFILES[kind].feeMultiple)
+}
+
+/** Pitch condition recovered between matchdays. */
+export const PITCH_RECOVERY_PER_ROUND = 9
+export const MIN_PITCH_CONDITION = 25
+export const MAX_PITCH_PENALTY = 2.5
+
+/**
+ * What a worn pitch costs the home side, in the same units as a tactic modifier.
+ *
+ * Charged to the home club alone. It is their ground and their decision: the
+ * money from the concert is theirs, so the rutted goalmouth is too. Bounded at
+ * `MAX_PITCH_PENALTY` — comparable to a formation choice, never enough to
+ * decide a match on its own.
+ */
+export function pitchPenaltyFor(condition: number): number {
+  return ((100 - clamp(condition, 0, 100)) / 100) * MAX_PITCH_PENALTY
+}
+
+/**
+ * How much more likely an injury is on a surface in that state, as a multiplier
+ * on the engine's injury draw.
+ *
+ * Applied to **both** sides, unlike the attack and defence penalty. A rutted
+ * goalmouth does not know which club hired the ground out — the money is the
+ * home club's problem and the ankles are everybody's. At the floor condition of
+ * 25 this is a 37% uplift on a base rate of 0.3 injuries a match, which is about
+ * one extra injury every nine matches: felt over a run of concerts, invisible in
+ * any single fixture.
+ */
+export const MAX_PITCH_INJURY_UPLIFT = 0.5
+
+export function pitchInjuryScaleFor(condition: number): number {
+  return 1 + ((100 - clamp(condition, 0, 100)) / 100) * MAX_PITCH_INJURY_UPLIFT
+}
+
+export function recoverPitch(condition: number): number {
+  return Math.min(100, condition + PITCH_RECOVERY_PER_ROUND)
+}
+
+export function wearPitch(condition: number, wear: number): number {
+  return Math.max(MIN_PITCH_CONDITION, condition - wear)
+}
+
+// ---------------------------------------------------------------------------
+// Season tickets
+// ---------------------------------------------------------------------------
+
+/**
+ * Sold before a ball is kicked: cash now, and a floor under the crowd, in
+ * exchange for the upside of a season that goes well.
+ *
+ * Neutral at a zero share, which is where every club starts — so attendance and
+ * gate receipts are untouched until a chairman decides otherwise.
+ */
+export function seasonTicketHolders(generalCapacity: number, sharePercent: number): number {
+  return Math.round(generalCapacity * clamp(sharePercent, 0, MAX_SEASON_TICKET_SHARE) / 100)
+}
+
+/** The lump that arrives in the summer, covering every home match at once. */
+export function seasonTicketRevenue(
+  holders: number,
+  ticketPrice: number,
+  discountPercent: number,
+  homeMatches: number,
+): number {
+  const perSeat = ticketPrice * (1 - clamp(discountPercent, 0, MAX_SEASON_TICKET_DISCOUNT) / 100)
+  return Math.round(holders * perSeat * homeMatches)
+}
+
+// ---------------------------------------------------------------------------
+// Running costs
+// ---------------------------------------------------------------------------
+
+/**
+ * Stewarding, policing, pitch and utilities for one home match.
+ *
+ * Priced off the commercial pool rather than off attendance, which is the
+ * realistic model and was tried first. Because gate income is large relative to
+ * commercial income at a small club and small at a giant, an attendance-
+ * proportional cost moved the bottom of the table's net by −15% while leaving
+ * the top +4%, which made several clubs structurally loss-making. Pricing it
+ * off the pool keeps the deduction uniform across the league, and uniformity is
+ * exactly what lets one uplift constant restore every club's net at once. The
+ * fill term keeps the realism that mattered: a full house costs more to run.
+ */
+export function matchdayOperatingCostFor(pool: number, fillRate: number): number {
+  return Math.round(pool * (OPERATING_BASE + OPERATING_VARIABLE * clamp(fillRate, 0, 1.2)))
+}
+
+/** Academy and training-ground upkeep, charged every matchday. */
+export function facilityUpkeepFor(pool: number, academyLevel: number, trainingLevel: number): number {
+  const levels = clamp(academyLevel, 0, MAX_FACILITY_LEVEL) + clamp(trainingLevel, 0, MAX_FACILITY_LEVEL)
+  return Math.round(pool * FACILITY_UPKEEP_SHARE * levels)
+}
+
+/**
+ * Capital cost of taking a facility from `level` to `level + 1`, in seasons of
+ * commercial income — so an upgrade costs a big club more and is worth more.
+ */
+export function facilityUpgradeCost(pool: number, level: number): number {
+  return Math.round(pool * MATCHDAYS_PER_SEASON * (0.25 + clamp(level, 0, MAX_FACILITY_LEVEL) * 0.2))
 }
 
 // ---------------------------------------------------------------------------

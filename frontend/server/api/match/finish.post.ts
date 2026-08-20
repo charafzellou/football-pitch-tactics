@@ -2,9 +2,9 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { game, matches, teams } from '../../db/schema'
 import { syncToMinute } from '../../core/match-session'
-import { resolveFixturesUpTo, settleMatchFitness } from '../../core/matchday-ai'
+import { settleMatchFitness } from '../../core/matchday-ai'
 import { buildMatchdayContext, settleMatchFinances } from '../../core/finance'
-import { settleBoardForMatchday } from '../../core/board'
+import { settleAftermath } from '../../core/matchday'
 import type { MatchState } from '#shared/match-state'
 import { MATCH_MINUTES } from '#shared/match-state'
 
@@ -70,16 +70,7 @@ export default defineEventHandler(async (event) => {
    * before it is played out headlessly, so the standings the manager returns
    * to are real.
    */
-  let othersResolved = 0
-  const gameState = await db.query.game.findFirst()
-  if (gameState && advancedTo) {
-    const result = await resolveFixturesUpTo(advancedTo, gameState.playerTeamId)
-    othersResolved = result.resolved
-  }
-
-  // The board and the support judge the manager on where the round left them,
-  // which is only knowable once every other result is in.
-  const board = await settleBoardForMatchday()
+  const { othersResolved, board, transfers, commercial } = await settleAftermath(advancedTo)
 
   return {
     finished: true,
@@ -87,6 +78,9 @@ export default defineEventHandler(async (event) => {
     homeScore: state.home.score,
     awayScore: state.away.score,
     othersResolved,
+    offersReceived: transfers.created,
+    offersExpired: transfers.expired,
+    sponsorOffersReceived: commercial.created,
     board: board
       ? {
           boardConfidence: board.boardConfidence,

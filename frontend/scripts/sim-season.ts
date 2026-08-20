@@ -11,7 +11,7 @@ import { buildTeam, insertEvents } from '../server/core/match-session'
 import { kickOff, simulateSegment } from '../server/core/match-engine'
 import { resolveFixturesUpTo, settleMatchFitness } from '../server/core/matchday-ai'
 import { buildMatchdayContext, settleMatchFinances } from '../server/core/finance'
-import { settleBoardForMatchday } from '../server/core/board'
+import { settleAftermath } from '../server/core/matchday'
 import { MATCH_MINUTES } from '../shared/match-state'
 
 export async function playPlayerFixture(fixtureId: number) {
@@ -71,10 +71,10 @@ export async function playSeason(log = false) {
     await resolveFixturesUpTo(new Date(new Date(next.matchDate as any).getTime() - 1000), gameState.playerTeamId)
     await playPlayerFixture(next.id)
 
+    // The same aftermath the matchday screen triggers, so a headless season
+    // exercises the world the manager would actually be handed.
     const after = await db.query.game.findFirst()
-    if (after) await resolveFixturesUpTo(after.currentDate, after.playerTeamId)
-
-    const board = await settleBoardForMatchday()
+    const { board } = await settleAftermath(after?.currentDate ?? null)
     if (log && board) console.log(`  R${next.round} board ${board.boardConfidence} fans ${board.fanConfidence} streak ${board.confidenceStreak}${board.dismissed ? ' DISMISSED' : ''}`)
     if (board?.dismissed) return { dismissed: true }
   }

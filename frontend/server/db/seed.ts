@@ -8,6 +8,8 @@ import { buildSeasonFixtures } from '../core/calendar'
 import { SQUAD_SHAPE, initialPotential, marketValueFor, positionsToFill } from '../core/progression'
 import type { PositionCode } from '../core/progression'
 import {
+  DEFAULT_FACILITY_LEVEL,
+  DEFAULT_SEASON_TICKET_DISCOUNT,
   fairTicketPrice,
   reputationFor,
   squadStrength,
@@ -46,6 +48,9 @@ await db.delete(schema.seasonSummary)
 await db.delete(schema.transferOffers)
 await db.delete(schema.clubNews)
 await db.delete(schema.financeLedger)
+await db.delete(schema.loans)
+await db.delete(schema.sponsorshipDeals)
+await db.delete(schema.stadiumEvents)
 await db.delete(schema.eventType)
 await db.delete(schema.game)
 await db.delete(schema.season)
@@ -223,13 +228,34 @@ for (const league of seededLeagues) {
     const squad = squads.get(team.id) ?? []
     const reputation = reputationFor(squad, index + 1, ranked.length)
     const capacity = stadiumCapacityFor(reputation)
+    // The ground keeps its own name in `stadium_base_name` so that selling the
+    // naming rights later is reversible when the deal runs out.
+    const name = stadiumNameFor(team.name)
 
+    /**
+     * Every venture starts at its opening state, written explicitly rather than
+     * left to the column defaults.
+     *
+     * The defaults in migration `0011` are literals; these are the constants the
+     * game actually reasons with. They agree today, and the point of stating
+     * them here is that they cannot quietly stop agreeing — a seeded club whose
+     * academy sat one level below `DEFAULT_FACILITY_LEVEL` would be charged the
+     * wrong upkeep, and `COMMERCIAL_UPLIFT` is derived from that exact level.
+     */
     await db.update(schema.teams).set({
       reputation,
       stadiumCapacity: capacity,
-      stadiumName: stadiumNameFor(team.name),
+      stadiumName: name,
+      stadiumBaseName: name,
       ticketPrice: fairTicketPrice(reputation),
       bankBalance: startingBalanceFor(reputation, capacity),
+      perimeterLevel: 0,
+      hospitalityBoxes: 0,
+      academyLevel: DEFAULT_FACILITY_LEVEL,
+      trainingLevel: DEFAULT_FACILITY_LEVEL,
+      seasonTicketShare: 0,
+      seasonTicketDiscount: DEFAULT_SEASON_TICKET_DISCOUNT,
+      pitchCondition: 100,
     }).where(eq(schema.teams.id, team.id))
 
     for (const player of squad) {

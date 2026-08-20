@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, real, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * Represents the `countries` table in the database.
@@ -44,9 +44,41 @@ export const teams = sqliteTable('teams', {
    */
   reputation: integer('reputation').notNull().default(50),
   stadiumName: text('stadium_name'),
+  /**
+   * The ground's own name, kept while a sponsor's name is displayed instead.
+   *
+   * Selling naming rights overwrites `stadium_name`; this is what it reverts to
+   * when the deal expires, so a club can never permanently lose its identity to
+   * a contract that has run out.
+   */
+  stadiumBaseName: text('stadium_base_name'),
   stadiumCapacity: integer('stadium_capacity').notNull().default(20000),
   /** What the club charges per ticket. The player's main revenue lever. */
   ticketPrice: integer('ticket_price').notNull().default(30),
+  /** Perimeter advertising tier, 0–3. Capital buys the next one. */
+  perimeterLevel: integer('perimeter_level').notNull().default(0),
+  /** Executive boxes built. Each replaces `HOSPITALITY_BOX_SEATS` ordinary seats. */
+  hospitalityBoxes: integer('hospitality_boxes').notNull().default(0),
+  /** Youth academy tier, 0–3. Feeds the quality and size of the summer intake. */
+  academyLevel: integer('academy_level').notNull().default(1),
+  /** Training ground tier, 0–3. Feeds development, and recovery from injury. */
+  trainingLevel: integer('training_level').notNull().default(1),
+  /**
+   * Percentage of capacity sold as season tickets before the season starts.
+   *
+   * Zero for every club by default, which is what keeps attendance and gate
+   * receipts identical to what they were before season tickets existed.
+   */
+  seasonTicketShare: integer('season_ticket_share').notNull().default(0),
+  /** Percentage off the gate price season-ticket holders pay. */
+  seasonTicketDiscount: integer('season_ticket_discount').notNull().default(20),
+  /**
+   * Pitch quality 0–100. Non-matchday events wear it down; it recovers weekly.
+   *
+   * A worn pitch costs the home side in the match engine, which is what stops a
+   * summer of concerts from being free money.
+   */
+  pitchCondition: integer('pitch_condition').notNull().default(100),
 })
 
 /**
@@ -170,6 +202,17 @@ export const game = sqliteTable('game', {
   confidenceStreak: integer('confidence_streak').notNull().default(0),
   /** Set when the manager has been dismissed; the save is then read-only. */
   dismissedAtSeason: integer('dismissed_at_season'),
+  /**
+   * How far the club's finances have deteriorated: 0 solvent, 1 overdrawn,
+   * 2 embargoed, 3 forced sales.
+   *
+   * Budgets in this game advise and never block. This is the one thing that
+   * does bite, and it keys on the balance actually being negative — never on
+   * exceeding a recommendation, which the manager is always free to do.
+   */
+  insolvencyStage: integer('insolvency_stage').notNull().default(0),
+  /** Consecutive matchdays finished with a negative balance. */
+  insolventRounds: integer('insolvent_rounds').notNull().default(0),
 })
 
 /**
@@ -243,7 +286,15 @@ export const financeLedger = sqliteTable('finance_ledger', {
   season: integer('season').notNull(),
   /** Matchday the entry belongs to. 0 for season-boundary items like prize money. */
   round: integer('round').notNull().default(0),
-  /** `wages` | `gate` | `sponsorship` | `prize` | `transfer_in` | `transfer_out` | `stadium` */
+  /**
+   * One of `LEDGER_TYPES` in `server/core/economy.ts`. Free text rather than a
+   * constrained column, so adding a stream is a one-line change there.
+   *
+   * Income: `gate`, `sponsorship`, `prize`, `transfer_out`, `merchandising`,
+   * `perimeter`, `hospitality`, `event_hire`, `season_tickets`, `loan_in`,
+   * `bonus`. Outgoings: `wages`, `transfer_in`, `stadium`, `operating`,
+   * `facilities`, `loan_repayment`, `interest`.
+   */
   type: text('type').notNull(),
   /** Positive credits the club, negative debits it. */
   amount: integer('amount').notNull(),
@@ -285,12 +336,121 @@ export const clubNews = sqliteTable('club_news', {
   id: integer('id').primaryKey(),
   season: integer('season').notNull(),
   round: integer('round').notNull().default(0),
-  /** `board` | `fans` | `transfer` | `contract` | `result` */
+  /** `board` | `fans` | `transfer` | `contract` | `result` | `finance` */
   category: text('category').notNull(),
   /** `positive` | `negative` | `neutral` */
   tone: text('tone').notNull().default('neutral'),
   headline: text('headline').notNull(),
   body: text('body'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+/**
+ * Commercial partnerships — offered, signed, and run out.
+ *
+ * Offers and deals share a table with a status, exactly as bids and completed
+ * transfers do, because they are the same object at different points in its
+ * life. Splitting them would mean copying six columns across on every signature
+ * and inventing a rule for which table the truth lives in.
+ *
+ * Rows exist only for the manager's club. Every CPU club takes the single
+ * blended `sponsorship` credit it always did — see `MatchdayContext` in
+ * `server/core/finance.ts` for why that asymmetry is presentational rather than
+ * an advantage.
+ */
+export const sponsorshipDeals = sqliteTable('sponsorship_deals', {
+  id: integer('id').primaryKey(),
+  teamId: integer('team_id')
+    .notNull()
+    .references(() => teams.id),
+  /** `shirt` | `kit_maker` | `sleeve` | `naming_rights` */
+  slot: text('slot').notNull(),
+  sponsorName: text('sponsor_name').notNull(),
+  /** Per matchday, like every other figure in this game's money. */
+  baseFee: integer('base_fee').notNull(),
+  /** Length of the deal in seasons, as offered. */
+  seasons: integer('seasons').notNull().default(3),
+  signedSeason: integer('signed_season').notNull(),
+  /** Last season the deal covers. Paid through the rollover past it. */
+  untilSeason: integer('until_season').notNull(),
+  /** Paid once at the rollover, if the club finished well enough to earn it. */
+  bonusChampion: integer('bonus_champion').notNull().default(0),
+  bonusTopFour: integer('bonus_top_four').notNull().default(0),
+  bonusSurvival: integer('bonus_survival').notNull().default(0),
+  /** `offered` | `active` | `expired` | `declined` */
+  status: text('status').notNull().default('offered'),
+  /** Matchday the offer was made, so a stale one can lapse. */
+  round: integer('round').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+/**
+ * Non-matchday bookings — the ground earning its keep between fixtures.
+ *
+ * Attached to a **round**, not a date. Nothing in this game happens on a day
+ * that is not a fixture date, and the stadium is not going to be the exception:
+ * as `PUT /api/team/:id/stadium` already puts it, there is no calendar
+ * granularity finer than a matchday to hang a timeline on. An event booked
+ * "before round 12" is settled when round 12 is played.
+ */
+export const stadiumEvents = sqliteTable('stadium_events', {
+  id: integer('id').primaryKey(),
+  teamId: integer('team_id')
+    .notNull()
+    .references(() => teams.id),
+  season: integer('season').notNull(),
+  /** The matchday this booking settles against. */
+  round: integer('round').notNull(),
+  /** `concert` | `international` | `rugby` | `conference` | `community` */
+  kind: text('kind').notNull(),
+  promoterName: text('promoter_name').notNull(),
+  fee: integer('fee').notNull(),
+  /** Points of pitch condition the booking costs. */
+  pitchWear: integer('pitch_wear').notNull().default(0),
+  /** How supporters take it. */
+  fanReaction: integer('fan_reaction').notNull().default(0),
+  /** `offered` | `booked` | `held` | `cancelled` | `expired` */
+  status: text('status').notNull().default('offered'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+/**
+ * Borrowing.
+ *
+ * A loan is the one thing in this economy that turns money you do not have into
+ * money you do, and it is priced so that it is never free: the rate is set by
+ * what the club is (`reputation`) and what state it is in (a negative balance
+ * costs four points more), and both interest and principal come off every
+ * matchday until the term runs out.
+ *
+ * The rows matter more to the *forecast* than to the balance. A four-season
+ * projection with no debt in it is a straight line; debt service is a fixed cost
+ * that does not care how the season goes, which is precisely what gives the
+ * long view teeth — and what makes borrowing to cover a wage bill a decision
+ * rather than a button.
+ *
+ * Player's club only, like `sponsorship_deals` and `stadium_events`. CPU clubs
+ * do not borrow, because nothing would ever read the row back.
+ */
+export const loans = sqliteTable('loans', {
+  id: integer('id').primaryKey(),
+  teamId: integer('team_id')
+    .notNull()
+    .references(() => teams.id),
+  /** What was drawn down, kept so the page can show progress against it. */
+  principal: integer('principal').notNull(),
+  /** What is still owed. Falls by `repayment_per_round` each matchday. */
+  outstanding: integer('outstanding').notNull(),
+  /** Annual rate as a percentage — 7.5 means 7.5%. */
+  ratePerSeason: real('rate_per_season').notNull(),
+  takenSeason: integer('taken_season').notNull(),
+  termSeasons: integer('term_seasons').notNull(),
+  /** Last season a repayment falls due. */
+  untilSeason: integer('until_season').notNull(),
+  /** Principal repaid every matchday, fixed at drawdown. */
+  repaymentPerRound: integer('repayment_per_round').notNull(),
+  /** `active` | `settled` */
+  status: text('status').notNull().default('active'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 

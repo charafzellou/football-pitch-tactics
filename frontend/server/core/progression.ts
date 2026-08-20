@@ -11,6 +11,15 @@
  */
 
 export const SQUAD_TARGET_SIZE = 22
+
+/**
+ * The facility level a club is assumed to have when nobody says otherwise.
+ *
+ * Re-exported from `economy.ts` so this module stays free of a DB-shaped
+ * dependency while still agreeing with the upkeep it is charged for.
+ */
+export const DEFAULT_TRAINING_LEVEL = 1
+export const DEFAULT_ACADEMY_LEVEL = 1
 export const MIN_SKILL = 40
 export const MAX_SKILL = 99
 export const RETIREMENT_FLOOR_AGE = 34
@@ -66,28 +75,84 @@ export function initialPotential(skillLevel: number, age: number): number {
  * headroom, so a player near their ceiling improves slowly and one already at
  * it simply plateaus. Decline is absolute and steepens with age.
  */
-export function developSkill(skillLevel: number, potential: number, age: number): number {
+/**
+ * What the training ground is worth.
+ *
+ * Two factors rather than one, because a training ground does two different
+ * jobs: it accelerates a young player toward his ceiling, and it slows the
+ * decline of an old one. Both are deliberately modest — a level-3 ground is
+ * worth roughly a third more development and a fifth less decay, which over
+ * four seasons is a couple of points a player and completely invisible over
+ * one. That invisibility is the point: it is the investment only the
+ * four-season projection can justify, which is exactly why the projection had
+ * to exist before this did.
+ */
+export function trainingDevelopmentFactor(trainingLevel: number): number {
+  return 1 + (clamp(trainingLevel, 0, 3) - DEFAULT_TRAINING_LEVEL) * 0.18
+}
+
+export function trainingDecayFactor(trainingLevel: number): number {
+  return 1 - (clamp(trainingLevel, 0, 3) - DEFAULT_TRAINING_LEVEL) * 0.11
+}
+
+/** How much an academy adds to a graduate's ability and to his ceiling. */
+export function academyGrade(academyLevel: number): { skill: number; potential: number } {
+  const grade = clamp(academyLevel, 0, 3) - DEFAULT_ACADEMY_LEVEL
+  return { skill: grade * 2, potential: grade * 5 }
+}
+
+export function developSkill(
+  skillLevel: number,
+  potential: number,
+  age: number,
+  trainingLevel: number = DEFAULT_TRAINING_LEVEL,
+): number {
   const ceiling = Math.max(skillLevel, potential)
   const headroom = Math.max(0, ceiling - skillLevel)
+
+  const growth = trainingDevelopmentFactor(trainingLevel)
+  const decay = trainingDecayFactor(trainingLevel)
 
   let next = skillLevel
 
   if (age <= 21)
-    next = skillLevel + headroom * randomBetween(0.18, 0.38)
+    next = skillLevel + headroom * randomBetween(0.18, 0.38) * growth
   else if (age <= 24)
-    next = skillLevel + headroom * randomBetween(0.10, 0.24)
+    next = skillLevel + headroom * randomBetween(0.10, 0.24) * growth
   else if (age <= 27)
-    next = skillLevel + headroom * randomBetween(0.03, 0.12)
+    next = skillLevel + headroom * randomBetween(0.03, 0.12) * growth
   else if (age <= 29)
-    next = skillLevel + headroom * randomBetween(0, 0.05)
+    next = skillLevel + headroom * randomBetween(0, 0.05) * growth
   else if (age <= 32)
-    next = skillLevel - randomBetween(0.5, 2)
+    next = skillLevel - randomBetween(0.5, 2) * decay
   else if (age <= 35)
-    next = skillLevel - randomBetween(1.5, 3.5)
+    next = skillLevel - randomBetween(1.5, 3.5) * decay
   else
-    next = skillLevel - randomBetween(2.5, 5.5)
+    next = skillLevel - randomBetween(2.5, 5.5) * decay
 
   return Math.round(clamp(next, MIN_SKILL, ceiling))
+}
+
+/**
+ * Extra stamina recovered between matches, on top of the standard recovery.
+ *
+ * Sports science is the least glamorous thing a chairman can buy and the one a
+ * manager notices soonest — a level-3 ground is six points of stamina a match,
+ * which across a fixture pile-up is the difference between rotating and not.
+ */
+export function trainingRecoveryBonus(trainingLevel: number): number {
+  return Math.max(0, clamp(trainingLevel, 0, 3) - DEFAULT_TRAINING_LEVEL) * 3
+}
+
+/**
+ * Chance that a physio department knocks an extra match off an absence.
+ *
+ * Expressed as a probability rather than a flat reduction so that it cannot
+ * turn a short injury into no injury at all — the worst case is still that a
+ * player misses a match.
+ */
+export function injuryRecoveryChance(trainingLevel: number): number {
+  return Math.max(0, clamp(trainingLevel, 0, 3) - DEFAULT_TRAINING_LEVEL) * 0.18
 }
 
 // The trend label the UI shows lives in `#shared/progression` so the client can
@@ -212,11 +277,39 @@ export function positionsToFill(
   return wanted
 }
 
-/** A 16–19 year old with modest ability and real headroom. */
-export function generateYouthPlayer(teamId: number, position: PositionCode): GeneratedPlayer {
+/**
+ * How many graduates an academy produces beyond the squad's actual shortfall.
+ *
+ * A club with a full squad and a top academy still has somebody coming through;
+ * without this the whole investment would be silent for any club that had not
+ * happened to lose players that summer, which is exactly the club most likely to
+ * have been able to afford it.
+ */
+export function academyIntakeBonus(academyLevel: number): number {
+  return clamp(academyLevel, 0, 3) >= 3 ? 1 : 0
+}
+
+/**
+ * A 16–19 year old with modest ability and real headroom.
+ *
+ * The academy level moves ability a little and **potential** a lot, which is the
+ * right shape: no academy produces a finished footballer, and the thing a good
+ * one actually produces is a teenager worth being patient with. A level-3
+ * academy graduate averages fifteen points more ceiling than a level-0 one, and
+ * none of that shows up until he has been developed for three seasons.
+ */
+export function generateYouthPlayer(
+  teamId: number,
+  position: PositionCode,
+  academyLevel: number = DEFAULT_ACADEMY_LEVEL,
+): GeneratedPlayer {
+  const grade = academyGrade(academyLevel)
+
   const age = Math.floor(randomBetween(16, 20))
-  const skillLevel = Math.round(randomBetween(42, 60))
-  const potential = Math.round(clamp(skillLevel + randomBetween(10, 38), skillLevel, MAX_SKILL))
+  const skillLevel = Math.round(clamp(randomBetween(42, 60) + grade.skill, MIN_SKILL, MAX_SKILL))
+  const potential = Math.round(
+    clamp(skillLevel + randomBetween(10, 38) + grade.potential, skillLevel, MAX_SKILL),
+  )
 
   return {
     name: generateName(),

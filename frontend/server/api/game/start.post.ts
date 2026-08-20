@@ -1,8 +1,4 @@
-import { eq } from 'drizzle-orm'
-import { db } from '../../../server/db'
-import { clubNews, game, teams, transferOffers } from '../../../server/db/schema'
-import { expectationFor } from '../../../server/core/board'
-import { computeStandings } from '../../../server/core/standings'
+import { createSave } from '../../../server/core/save'
 
 /**
  * Creates a save.
@@ -11,6 +7,11 @@ import { computeStandings } from '../../../server/core/standings'
  * deliberately no endpoint that can change it afterwards — a difficulty you can
  * switch off the moment it bites is not a difficulty — so the new-game screen
  * states the choice is permanent before the save is created.
+ *
+ * The work itself lives in `createSave()` so the headless drivers under
+ * `scripts/` start from exactly the state this endpoint produces. When they did
+ * their own, smaller reset, `verify-economy.ts` failed its ledger check against
+ * rows its own previous run had left behind.
  */
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ teamId?: number; sackingEnabled?: boolean }>(event)
@@ -23,31 +24,5 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const club = await db.query.teams.findFirst({ where: eq(teams.id, teamId) })
-  if (!club) {
-    throw createError({ statusCode: 404, statusMessage: 'Club not found' })
-  }
-
-  // The board's opening target comes from the club's standing. Season 1 has no
-  // previous finish to temper it with, so reputation alone sets the bar.
-  const table = await computeStandings(club.leagueId, 1)
-  const boardExpectation = expectationFor(club.reputation, null, table.length || 20)
-
-  await db.delete(game)
-  // Board reactions and bids belong to the manager who received them.
-  await db.delete(clubNews)
-  await db.delete(transferOffers)
-
-  const newGame = await db
-    .insert(game)
-    .values({
-      playerTeamId: teamId,
-      season: 1,
-      currentDate: new Date(),
-      sackingEnabled: body?.sackingEnabled ? 1 : 0,
-      boardExpectation,
-    })
-    .returning()
-
-  return newGame[0]
+  return createSave({ teamId, sackingEnabled: body?.sackingEnabled })
 })

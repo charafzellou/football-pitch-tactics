@@ -11,7 +11,7 @@ import { clubNews } from '../db/schema'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
-export type NewsCategory = 'board' | 'fans' | 'transfer' | 'contract' | 'result'
+export type NewsCategory = 'board' | 'fans' | 'transfer' | 'contract' | 'result' | 'finance'
 export type NewsTone = 'positive' | 'negative' | 'neutral'
 
 export interface NewsItem {

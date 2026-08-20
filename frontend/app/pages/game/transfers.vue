@@ -22,6 +22,31 @@ interface MarketPlayer {
   stamina: number
   marketValue: number
   teamId: number
+  /** Unattached — costs a wage and no fee. */
+  freeAgent: boolean
+  /** What signing him costs in cash: `0` for a free agent. */
+  fee: number
+  teamName: string
+}
+
+interface TransferOffer {
+  id: number
+  amount: number
+  round: number
+  roundsRemaining: number
+  fromTeamName: string
+  fromTeamReputation: number
+  premiumPercent: number
+  player: {
+    id: number
+    name: string
+    age: number
+    position: string
+    skillLevel: number
+    marketValue: number
+    wage: number
+    contractUntilSeason: number
+  }
 }
 
 const toast = useAppToast()
@@ -39,16 +64,49 @@ const sortBy = ref<'value' | 'skill' | 'age'>('skill')
 const pendingPurchase = ref<MarketPlayer | null>(null)
 const buying = ref(false)
 
+/** Free agent currently in contract talks, if any. */
+const signingPlayerId = ref<number | null>(null)
+
+/** Offer being answered, so only that card shows a spinner. */
+const answeringOfferId = ref<number | null>(null)
+
 const { data: searchResults, pending, refresh: refreshSearch } = useAsyncData(
   'transfer-search',
   () => $fetch<MarketPlayer[]>(`/api/players/search?query=${encodeURIComponent(debouncedQuery.value.trim())}`),
   { watch: [debouncedQuery], default: () => [] as MarketPlayer[] },
 )
 
+const { data: offers, refresh: refreshOffers } = useAsyncData(
+  'transfer-offers',
+  () => $fetch<TransferOffer[]>('/api/transfers/offers'),
+  { default: () => [] as TransferOffer[] },
+)
+
+/**
+ * What the club can actually pay today. This is the affordability rule, and it
+ * matches the server's — a fee above the balance is refused.
+ */
 const availableBudget = computed(() => team.value?.bankBalance ?? 0)
 
+const { projection } = useFinanceProjection()
+
+/**
+ * What the club can pay *without finishing the season overdrawn*.
+ *
+ * Deliberately advisory. It never disables a button and the server never checks
+ * it: a chairman is allowed to bet the house on a striker, and find out.
+ */
+const safeSpend = computed(() => projection.value?.transferBudget.safeSpend ?? null)
+
+/** Affordable now, but only by eating into next season. */
+function isOverSafeBudget(player: MarketPlayer): boolean {
+  if (player.freeAgent || safeSpend.value === null) return false
+  return player.fee > safeSpend.value && player.fee <= availableBudget.value
+}
+
+/** A free agent is always affordable — there is no fee, only a wage. */
 function canAfford(player: MarketPlayer) {
-  return player.marketValue <= availableBudget.value
+  return player.freeAgent || player.fee <= availableBudget.value
 }
 
 const slotTabs = computed(() => {
@@ -79,18 +137,67 @@ const visiblePlayers = computed(() => {
 })
 
 const balanceAfterPurchase = computed(() =>
-  pendingPurchase.value ? availableBudget.value - pendingPurchase.value.marketValue : null,
+  pendingPurchase.value ? availableBudget.value - pendingPurchase.value.fee : null,
 )
 
 function requestPurchase(player: MarketPlayer) {
+  // A free agent costs no fee, so there is nothing to confirm — the decision is
+  // the wage, which contract talks put in front of the manager instead.
+  if (player.freeAgent) {
+    signingPlayerId.value = player.id
+    return
+  }
+
   if (!canAfford(player)) {
     toast.warn({
       title: 'Not enough funds',
-      description: `You are ${formatMoney(player.marketValue - availableBudget.value)} short for ${player.name}.`,
+      description: `You are ${formatMoney(player.fee - availableBudget.value)} short for ${player.name}.`,
     })
     return
   }
   pendingPurchase.value = player
+}
+
+async function onSigned() {
+  await Promise.all([refreshTeam(), refreshSearch()])
+  if (settings.motion === 'full')
+    void celebrate()
+}
+
+// ---------------------------------------------------------------------------
+// Bids for the manager's own players
+// ---------------------------------------------------------------------------
+
+async function answerOffer(offer: TransferOffer, accept: boolean) {
+  answeringOfferId.value = offer.id
+
+  try {
+    const result = await $fetch<{ accepted: boolean; fee?: number; buyerTeam?: string }>(
+      '/api/transfers/offers',
+      { method: 'POST', body: { offerId: offer.id, action: accept ? 'accept' : 'reject' } },
+    )
+
+    await Promise.all([refreshOffers(), refreshTeam(), refreshSearch()])
+
+    if (result.accepted) {
+      toast.success({
+        title: `${offer.player.name} sold`,
+        description: `To ${result.buyerTeam} for ${formatMoney(result.fee ?? offer.amount)}.`,
+      })
+    }
+    else {
+      toast.info({
+        title: 'Bid rejected',
+        description: `${offer.fromTeamName} have been turned down for ${offer.player.name}.`,
+      })
+    }
+  }
+  catch (error) {
+    toast.fromRequestError(error, 'Could not answer that bid')
+  }
+  finally {
+    answeringOfferId.value = null
+  }
 }
 
 async function confirmPurchase() {
@@ -104,6 +211,7 @@ async function confirmPurchase() {
       method: 'POST',
       body: { playerId: player.id, action: 'buy' },
     })
+    await refreshOffers()
 
     await Promise.all([refreshTeam(), refreshSearch()])
     pendingPurchase.value = null
@@ -145,8 +253,9 @@ async function celebrate() {
 
 /** Share of the budget a player would consume, for the affordability bar. */
 function budgetShare(player: MarketPlayer) {
+  if (player.freeAgent) return 0
   if (!availableBudget.value) return 100
-  return Math.min(100, Math.round((player.marketValue / availableBudget.value) * 100))
+  return Math.min(100, Math.round((player.fee / availableBudget.value) * 100))
 }
 
 watch(slotFilter, () => { /* purely reactive filter */ })
@@ -170,6 +279,9 @@ watch(slotFilter, () => { /* purely reactive filter */ })
       <div class="min-w-0">
         <p class="app-kicker text-[10px]">Available budget</p>
         <AppCountUp :value="availableBudget" :format="formatMoney" class="app-hero-number text-2xl" />
+        <p v-if="safeSpend !== null" class="app-muted-text mt-0.5 text-[11px]">
+          {{ formatMoney(safeSpend) }} of it can be spent without finishing the season overdrawn
+        </p>
       </div>
       <p
         v-if="availableBudget < 1_000_000"
@@ -179,6 +291,77 @@ watch(slotFilter, () => { /* purely reactive filter */ })
         Funds are low — consider selling first
       </p>
     </div>
+
+    <!-- Bids for your players -->
+    <UCard v-if="offers.length" class="app-elevated">
+      <template #header>
+        <div class="flex flex-wrap items-center gap-2">
+          <UIcon name="i-lucide-gavel" class="size-4" style="color: var(--app-gold)" />
+          Offers for your players
+          <span class="app-chip ml-auto">{{ offers.length }} on the table</span>
+        </div>
+      </template>
+
+      <div class="space-y-2.5">
+        <div
+          v-for="offer in offers"
+          :key="offer.id"
+          class="app-surface-subtle animate-fade-in-up p-4"
+        >
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex min-w-0 flex-1 items-center gap-3">
+              <div
+                class="flex size-11 shrink-0 items-center justify-center rounded-2xl text-sm font-black"
+                style="background-color: var(--app-accent-soft); color: var(--app-accent)"
+              >{{ offer.player.skillLevel }}</div>
+
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="truncate font-bold" style="color: var(--app-text)">{{ offer.player.name }}</p>
+                  <AppPositionBadge :position="offer.player.position" size="xs" />
+                  <span class="app-muted-text text-xs">{{ offer.player.age }}y</span>
+                </div>
+
+                <p class="app-muted-text text-xs">
+                  <span style="color: var(--app-text-soft)">{{ offer.fromTeamName }}</span>
+                  bid <span class="font-bold" style="color: var(--app-gold)">{{ formatMoney(offer.amount) }}</span>
+                  <span v-if="offer.premiumPercent !== 0">
+                    · {{ offer.premiumPercent > 0 ? '+' : '' }}{{ offer.premiumPercent }}% on his
+                    {{ formatMoneyCompact(offer.player.marketValue) }} valuation
+                  </span>
+                </p>
+
+                <p class="text-[11px]" :style="{ color: offer.roundsRemaining <= 1 ? 'var(--app-player-booked)' : 'var(--app-text-muted)' }">
+                  <UIcon name="i-lucide-clock" class="mr-1 inline size-3" />
+                  {{ offer.roundsRemaining === 0
+                    ? 'Lapses after this matchday'
+                    : `${offer.roundsRemaining} matchday${offer.roundsRemaining === 1 ? '' : 's'} to decide` }}
+                </p>
+              </div>
+            </div>
+
+            <div class="flex shrink-0 gap-2">
+              <UButton
+                icon="i-lucide-check"
+                label="Accept"
+                color="primary"
+                :loading="answeringOfferId === offer.id"
+                :disabled="answeringOfferId !== null"
+                @click="answerOffer(offer, true)"
+              />
+              <UButton
+                icon="i-lucide-x"
+                label="Reject"
+                color="neutral"
+                variant="soft"
+                :disabled="answeringOfferId !== null"
+                @click="answerOffer(offer, false)"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </UCard>
 
     <!-- Search and filters -->
     <UCard class="app-surface">
@@ -252,18 +435,38 @@ watch(slotFilter, () => { /* purely reactive filter */ })
               >{{ player.skillLevel }}</div>
 
               <div class="min-w-0 flex-1 space-y-1.5">
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <p class="truncate font-bold" style="color: var(--app-text)">{{ player.name }}</p>
                   <AppPositionBadge :position="player.position" size="xs" />
                   <span class="app-muted-text text-xs">{{ player.age }}y</span>
+                  <span v-if="player.freeAgent" class="app-chip app-chip--success">
+                    <UIcon name="i-lucide-user-round-check" class="size-3" />
+                    Free agent
+                  </span>
+                  <span v-else class="app-muted-text truncate text-xs">{{ player.teamName }}</span>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span class="text-sm font-bold" style="color: var(--app-accent)">
-                    {{ formatMoney(player.marketValue) }}
+                  <span
+                    class="text-sm font-bold"
+                    :style="{ color: player.freeAgent ? 'var(--app-gold)' : 'var(--app-accent)' }"
+                  >
+                    {{ player.freeAgent ? 'No fee — wages only' : formatMoney(player.fee) }}
                   </span>
-                  <span class="flex items-center gap-1.5 text-[11px]" style="color: var(--app-text-muted)">
-                    {{ budgetShare(player) }}% of budget
+                  <span
+                    v-if="!player.freeAgent"
+                    class="flex items-center gap-1.5 text-[11px]"
+                    style="color: var(--app-text-muted)"
+                  >
+                    <UIcon
+                      v-if="isOverSafeBudget(player)"
+                      name="i-lucide-triangle-alert"
+                      class="size-3"
+                      style="color: var(--app-player-booked)"
+                    />
+                    <span :style="isOverSafeBudget(player) ? 'color: var(--app-player-booked)' : undefined">
+                      {{ isOverSafeBudget(player) ? 'above your safe budget' : `${budgetShare(player)}% of budget` }}
+                    </span>
                     <span class="h-1 w-16 overflow-hidden rounded-full" style="background-color: var(--app-surface-muted)">
                       <span
                         class="block h-full rounded-full transition-all duration-500"
@@ -280,14 +483,16 @@ watch(slotFilter, () => { /* purely reactive filter */ })
 
             <div class="shrink-0">
               <UButton
-                icon="i-lucide-shopping-cart"
-                :label="canAfford(player) ? 'Buy' : 'Too expensive'"
+                :icon="player.freeAgent ? 'i-lucide-file-signature' : 'i-lucide-shopping-cart'"
+                :label="player.freeAgent ? 'Talk terms' : canAfford(player) ? 'Buy' : 'Too expensive'"
                 :color="canAfford(player) ? 'primary' : 'neutral'"
                 :variant="canAfford(player) ? 'solid' : 'soft'"
                 :disabled="!canAfford(player)"
-                :title="canAfford(player)
-                  ? `Sign ${player.name}`
-                  : `You are ${formatMoneyCompact(player.marketValue - availableBudget)} short`"
+                :title="player.freeAgent
+                  ? `Agree terms with ${player.name} — no fee`
+                  : canAfford(player)
+                    ? `Sign ${player.name}`
+                    : `You are ${formatMoneyCompact(player.fee - availableBudget)} short`"
                 class="w-full sm:w-auto"
                 @click="requestPurchase(player)"
               />
@@ -329,7 +534,7 @@ watch(slotFilter, () => { /* purely reactive filter */ })
           </div>
           <div class="flex items-center justify-between gap-4">
             <dt class="app-muted-text">Fee</dt>
-            <dd class="font-semibold" style="color: var(--app-text)">{{ formatMoney(pendingPurchase.marketValue) }}</dd>
+            <dd class="font-semibold" style="color: var(--app-text)">{{ formatMoney(pendingPurchase.fee) }}</dd>
           </div>
           <div class="flex items-center justify-between gap-4">
             <dt class="app-muted-text">Balance after</dt>
@@ -343,5 +548,17 @@ watch(slotFilter, () => { /* purely reactive filter */ })
         </dl>
       </template>
     </AppConfirmModal>
+
+    <!--
+      Signing a free agent is a negotiation, not a purchase — the same panel the
+      Team page uses to renew a contract, pointed at the signing endpoint.
+    -->
+    <ContractModal
+      :player-id="signingPlayerId"
+      :team-id="team?.id ?? null"
+      mode="sign"
+      @close="signingPlayerId = null"
+      @renewed="onSigned"
+    />
   </div>
 </template>

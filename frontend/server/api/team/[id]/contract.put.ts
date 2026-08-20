@@ -5,6 +5,8 @@ import { evaluateOffer, maxSeasonsFor } from '../../../core/contracts'
 import { leagueStandingFor } from '../../../core/finance'
 import { getSeasonStatus } from '../../../core/season'
 import { postNews } from '../../../core/news'
+import { requireActiveManager } from '../../../core/save'
+import { assertNotEmbargoed } from '../../../core/insolvency'
 
 /**
  * Offers a player new terms.
@@ -29,8 +31,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'A wage cannot be negative' })
   }
 
-  const gameState = await db.query.game.findFirst()
-  if (!gameState || gameState.playerTeamId !== teamId) {
+  const gameState = await requireActiveManager()
+  if (gameState.playerTeamId !== teamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }
 
@@ -38,6 +40,16 @@ export default defineEventHandler(async (event) => {
   if (!player || player.teamId !== teamId || player.retired || player.freeAgent) {
     throw createError({ statusCode: 404, statusMessage: 'That player is not in your squad' })
   }
+
+  /**
+   * An embargoed club may still renew, but not improve.
+   *
+   * Blocking renewals outright would let the embargo cost the manager players
+   * for free — the point is to stop them adding to a wage bill they cannot pay,
+   * not to strip the squad while they are already broke.
+   */
+  if (wage > player.wage)
+    assertNotEmbargoed(gameState.insolvencyStage)
 
   const status = await getSeasonStatus()
   const standing = await leagueStandingFor(teamId, gameState.season, status?.round ?? 0)

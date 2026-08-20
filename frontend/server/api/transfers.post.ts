@@ -1,6 +1,12 @@
+import { and, eq, gt, inArray, ne } from 'drizzle-orm'
 import { db } from '../../server/db'
 import { players, teams } from '../../server/db/schema'
-import { and, eq, gt, inArray, ne } from 'drizzle-orm'
+import { requireActiveManager } from '../../server/core/save'
+import { assertNotEmbargoed } from '../../server/core/insolvency'
+import { settleTransfer } from '../../server/core/market'
+import { evaluateOffer } from '../../server/core/contracts'
+import { leagueStandingFor } from '../../server/core/finance'
+import { getSeasonStatus } from '../../server/core/season'
 
 const MAX_SKILL_GAP = 8
 const CLOSEST_FALLBACK_SIZE = 5
@@ -22,21 +28,143 @@ function getTransferPremium(strengthDelta: number) {
   return 0.15 + Math.random() * 0.15
 }
 
+/**
+ * Buying, selling, and signing a free agent.
+ *
+ * All three settle through `settleTransfer()`, which is what finally puts
+ * transfers in the ledger. This route used to move `teams.bank_balance`
+ * directly, so the `transfer_in`/`transfer_out` ledger types were declared and
+ * never written — a balance rebuilt from the ledger disagreed with the stored
+ * one for any club that had traded. It also means a notable arrival or
+ * departure now actually moves fan confidence.
+ */
 export default defineEventHandler(async (event) => {
-  const { playerId, action } = await readBody(event)
-  if (action !== 'sell' && action !== 'buy') {
+  const body = await readBody<{
+    playerId?: number
+    action?: string
+    wage?: number
+    seasons?: number
+  }>(event)
+
+  const { action } = body
+  if (action !== 'sell' && action !== 'buy' && action !== 'sign') {
     throw createError({ statusCode: 400, statusMessage: 'Invalid action' })
   }
 
-  // Get player
-  const player = await db.query.players.findFirst({ where: eq(players.id, playerId) })
-  if (!player) throw createError({ statusCode: 404, statusMessage: 'Player not found' })
-  const gameState = await db.query.game.findFirst()
-  if (!gameState?.playerTeamId) {
+  const playerId = Number(body.playerId)
+  if (!playerId) {
+    throw createError({ statusCode: 400, statusMessage: 'playerId is required' })
+  }
+
+  const gameState = await requireActiveManager()
+  if (!gameState.playerTeamId) {
     throw createError({ statusCode: 400, statusMessage: 'No active player team found' })
   }
 
+  const player = await db.query.players.findFirst({ where: eq(players.id, playerId) })
+  if (!player) throw createError({ statusCode: 404, statusMessage: 'Player not found' })
+
+  if (player.retired) {
+    throw createError({ statusCode: 400, statusMessage: 'That player has retired' })
+  }
+
+  const status = await getSeasonStatus()
+  const round = status?.round ?? 0
+  const season = gameState.season
+
+  /**
+   * The embargo, and the only place a financial condition refuses anything.
+   *
+   * Selling is always allowed — it is how a club under embargo gets out of one.
+   * Only bringing a player in is blocked, and only because the balance is
+   * actually negative, never because a recommended budget says so.
+   */
+  if (action !== 'sell')
+    assertNotEmbargoed(gameState.insolvencyStage)
+
+  // -------------------------------------------------------------------------
+  // Signing a free agent — no fee, just terms
+  // -------------------------------------------------------------------------
+  if (action === 'sign') {
+    if (!player.freeAgent) {
+      throw createError({ statusCode: 400, statusMessage: 'That player is under contract — make an offer to his club instead' })
+    }
+
+    const wage = Math.round(Number(body?.wage))
+    const seasons = Math.round(Number(body?.seasons))
+
+    if (!Number.isFinite(wage) || !Number.isFinite(seasons) || wage < 0) {
+      throw createError({ statusCode: 400, statusMessage: 'wage and seasons are required' })
+    }
+
+    const standing = await leagueStandingFor(gameState.playerTeamId, season, round)
+    if (!standing) {
+      throw createError({ statusCode: 404, statusMessage: 'Club not found' })
+    }
+
+    const outcome = evaluateOffer(
+      {
+        playerId: player.id,
+        marketValue: player.marketValue,
+        age: player.age,
+        skillLevel: player.skillLevel,
+        clubReputation: standing.club.reputation,
+        position: standing.position,
+        leagueSize: standing.leagueSize,
+      },
+      { wage, seasons },
+    )
+
+    // A refusal is a normal outcome of negotiating, not an error — the response
+    // carries what he actually wanted so the manager can meet it.
+    if (!outcome.accepted) {
+      return {
+        success: false,
+        accepted: false,
+        required: outcome.required,
+        maxSeasons: outcome.maxSeasons,
+        reason: outcome.reason,
+      }
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const settled = await settleTransfer(tx, {
+        playerId: player.id,
+        fromTeamId: player.teamId,
+        toTeamId: gameState.playerTeamId,
+        fee: 0,
+        season,
+        round,
+      })
+
+      await tx.update(players)
+        .set({ wage, contractUntilSeason: season + seasons - 1 })
+        .where(eq(players.id, player.id))
+
+      return settled
+    })
+
+    return {
+      success: true,
+      accepted: true,
+      freeTransfer: true,
+      buyerTeam: result.toTeamName,
+      previousTeam: result.fromTeamName,
+      wage,
+      seasons,
+      contractUntilSeason: season + seasons - 1,
+      fanConfidence: result.fanConfidence,
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Buying a contracted player at his valuation
+  // -------------------------------------------------------------------------
   if (action === 'buy') {
+    if (player.freeAgent) {
+      throw createError({ statusCode: 400, statusMessage: 'That player is a free agent — sign him on terms instead' })
+    }
+
     const buyerTeam = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
     if (!buyerTeam) {
       throw createError({ statusCode: 404, statusMessage: 'Buyer team not found' })
@@ -56,21 +184,27 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Your club cannot afford this player' })
     }
 
-    await db.transaction(async (tx) => {
-      await tx.update(players).set({ teamId: buyerTeam.id }).where(eq(players.id, playerId))
-      await tx.update(teams).set({ bankBalance: buyerTeam.bankBalance - purchasePrice }).where(eq(teams.id, buyerTeam.id))
-      await tx.update(teams).set({ bankBalance: sellerTeam.bankBalance + purchasePrice }).where(eq(teams.id, sellerTeam.id))
-    })
+    const result = await db.transaction(tx => settleTransfer(tx, {
+      playerId: player.id,
+      fromTeamId: sellerTeam.id,
+      toTeamId: buyerTeam.id,
+      fee: purchasePrice,
+      season,
+      round,
+    }))
 
     return {
       success: true,
-      buyerTeam: buyerTeam.name,
-      sellerTeam: sellerTeam.name,
+      buyerTeam: result.toTeamName,
+      sellerTeam: result.fromTeamName,
       purchasePrice,
+      fanConfidence: result.fanConfidence,
     }
   }
 
-  // Get seller team
+  // -------------------------------------------------------------------------
+  // Selling to the best-fitting AI buyer
+  // -------------------------------------------------------------------------
   const sellerTeam = await db.query.teams.findFirst({ where: eq(teams.id, player.teamId) })
   if (!sellerTeam) throw createError({ statusCode: 404, statusMessage: 'Seller team not found' })
 
@@ -141,15 +275,21 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'No team can afford this player.' })
   }
 
-  // Transfer player and update funds
-  await db.transaction(async (tx) => {
-    await tx.update(players).set({ teamId: buyerTeam.id, marketValue: buyerTeam.transferValue }).where(eq(players.id, playerId))
-    await tx.update(teams).set({ bankBalance: sellerTeam.bankBalance + buyerTeam.transferValue }).where(eq(teams.id, sellerTeam.id))
-    await tx.update(teams).set({ bankBalance: buyerTeam.bankBalance - buyerTeam.transferValue }).where(eq(teams.id, buyerTeam.id))
-  })
+  const result = await db.transaction(tx => settleTransfer(tx, {
+    playerId: player.id,
+    fromTeamId: sellerTeam.id,
+    toTeamId: buyerTeam.id,
+    fee: buyerTeam.transferValue,
+    season,
+    round,
+    // Sold at a premium, so he is worth more to the next club that asks.
+    newMarketValue: buyerTeam.transferValue,
+  }))
+
   return {
     success: true,
-    buyerTeam: buyerTeam.name,
+    buyerTeam: result.toTeamName,
     salePrice: buyerTeam.transferValue,
+    fanConfidence: result.fanConfidence,
   }
 })

@@ -1,10 +1,13 @@
 import { db } from '../../../../server/db'
 import { teams } from '../../../../server/db/schema'
+import { requireActiveManager } from '../../../../server/core/save'
 import { eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const teamId = Number(event.context.params?.id)
   const { tactics } = await readBody(event)
+
+  await requireActiveManager()
 
   if (!teamId) {
     throw createError({

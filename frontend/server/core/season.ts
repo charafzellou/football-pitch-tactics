@@ -11,12 +11,13 @@
  */
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db'
-import { game, matches, players, season as seasonTable, seasonSummary, teams } from '../db/schema'
+import { game, matches, players, season as seasonTable, seasonSummary, stadiumEvents, teams } from '../db/schema'
 import { buildSeasonFixtures, roundsFor, seasonStartDate } from './calendar'
 import { computeStandings } from './standings'
 import type { StandingRow } from './standings'
 import {
   SQUAD_TARGET_SIZE,
+  academyIntakeBonus,
   developSkill,
   generateYouthPlayer,
   marketValueFor,
@@ -25,8 +26,14 @@ import {
 } from './progression'
 import type { PositionCode } from './progression'
 import { aiContractLength, aiRenews, canCarryWage, requiredWage } from './contracts'
-import { payPrizeMoney } from './finance'
-import { prizeMoneyFor } from './economy'
+import { payPrizeMoney, postLedger } from './finance'
+import { expireDeals, paySponsorshipBonuses } from './sponsors'
+import {
+  prizeMoneyFor,
+  seasonTicketHolders,
+  seasonTicketRevenue,
+  seatsLostToBoxes,
+} from './economy'
 import { settleSeasonEnd } from './board'
 import { postNews, pruneNews } from './news'
 import type { NewsItem } from './news'
@@ -237,6 +244,15 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
   /** Post-development numbers, which is what contracts are priced against. */
   const developedById = new Map<number, { age: number; skillLevel: number; marketValue: number }>()
 
+  /**
+   * Whose training ground each player develops on.
+   *
+   * Read once, here, rather than per player — development is applied to every
+   * squad in the world in one pass and forty lookups inside that loop would be
+   * forty thousand queries a rollover.
+   */
+  const trainingByTeam = new Map(allTeams.map(team => [team.id, team.trainingLevel]))
+
   for (const player of squad) {
     const age = player.age + 1
     const potential = Math.max(player.potential, player.skillLevel)
@@ -255,7 +271,9 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
       continue
     }
 
-    const skillLevel = developSkill(player.skillLevel, potential, age)
+    const skillLevel = developSkill(
+      player.skillLevel, potential, age, trainingByTeam.get(player.teamId) ?? 1,
+    )
     const marketValue = marketValueFor(skillLevel, age, potential)
 
     developments.push({ id: player.id, age, skillLevel, marketValue })
@@ -382,7 +400,17 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
 
   for (const team of allTeams) {
     const survivors = (survivorsByTeam.get(team.id) ?? []).filter(player => !releasedIds.has(player.id))
-    const shortfall = Math.max(0, SQUAD_TARGET_SIZE - survivors.length)
+
+    /**
+     * Places to fill, and how many of them the academy claims.
+     *
+     * A top academy adds a graduate the squad did not strictly need, and those
+     * last places are *always* youth — a bonus slot filled by somebody else's
+     * castoff would make the investment indistinguishable from not having made
+     * it.
+     */
+    const bonus = academyIntakeBonus(team.academyLevel)
+    const shortfall = Math.max(0, SQUAD_TARGET_SIZE - survivors.length) + bonus
     if (!shortfall)
       continue
 
@@ -400,10 +428,14 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
     let budget = team.bankBalance
     let signed = 0
 
-    for (const needed of positionsToFill(counts, shortfall)) {
+    const wanted = positionsToFill(counts, shortfall)
+
+    for (const [slot, needed] of wanted.entries()) {
+      const academySlot = slot >= wanted.length - bonus
+
       // The manager fills their own gaps in the transfer market; the engine
       // signing on their behalf would spend their money without asking.
-      const candidate = isPlayerClub || signed >= MAX_FREE_AGENT_SIGNINGS
+      const candidate = isPlayerClub || academySlot || signed >= MAX_FREE_AGENT_SIGNINGS
         ? undefined
         : freeAgentPool.find((player) => {
             if (takenFreeAgents.has(player.id) || positionCodeOf(player.position) !== needed)
@@ -441,7 +473,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
         continue
       }
 
-      const youth = generateYouthPlayer(team.id, needed)
+      const youth = generateYouthPlayer(team.id, needed, team.academyLevel)
       youthRows.push({
         ...youth,
         // Youth arrive on modest terms, long enough that they are not back on
@@ -516,6 +548,107 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
     // Prize money for the season just finished, before anything else moves.
     for (const table of finalTables)
       await payPrizeMoney(tx, previousSeason, table)
+
+    /**
+     * Then what the manager's partners owe for it.
+     *
+     * Sponsorship bonuses sit next to prize money because they are the same
+     * kind of thing — a verdict on the season that has just ended, not income
+     * from the one about to start. A deal in its final season is paid its bonus
+     * before it is retired, which is what makes a short deal's larger bonus
+     * worth taking.
+     */
+    const playerTable = finalTables.find(table => table.some(row => row.teamId === gameState.playerTeamId))
+    if (playerTable) {
+      const finish = playerTable.findIndex(row => row.teamId === gameState.playerTeamId) + 1
+      const bonuses = await paySponsorshipBonuses(
+        tx, gameState.playerTeamId, previousSeason, finish, playerTable.length,
+      )
+
+      for (const bonus of bonuses) {
+        news.push({
+          season: newSeason,
+          round: 0,
+          category: 'finance',
+          tone: 'positive',
+          headline: bonus.description,
+          body: `${bonus.amount.toLocaleString('en-IE')} paid into the club's account.`,
+        })
+      }
+    }
+
+    /**
+     * Season tickets for the campaign about to start, sold and banked now.
+     *
+     * The whole point of them is that the money arrives before the football
+     * does — a chairman short of cash in July can sell certainty and spend it,
+     * and then watch a title run fill a ground he has already been paid for.
+     */
+    const club = await tx.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
+    if (club && club.seasonTicketShare > 0) {
+      const generalCapacity = Math.max(0, club.stadiumCapacity - seatsLostToBoxes(club.hospitalityBoxes))
+      const holders = seasonTicketHolders(generalCapacity, club.seasonTicketShare)
+      const revenue = seasonTicketRevenue(
+        holders, club.ticketPrice, club.seasonTicketDiscount, roundsFor(20) / 2,
+      )
+
+      if (revenue > 0) {
+        await postLedger(tx, [{
+          teamId: club.id,
+          season: newSeason,
+          round: 0,
+          type: 'season_tickets',
+          amount: revenue,
+          description: `Season tickets — ${holders.toLocaleString('en-IE')} at `
+            + `${club.seasonTicketDiscount}% off`,
+        }])
+
+        news.push({
+          season: newSeason,
+          round: 0,
+          category: 'finance',
+          tone: 'positive',
+          headline: `${holders.toLocaleString('en-IE')} season tickets sold`,
+          body: `${revenue.toLocaleString('en-IE')} banked before a ball is kicked. `
+            + 'Those seats are spoken for whatever happens now.',
+        })
+      }
+    }
+
+    const lapsed = await expireDeals(tx, gameState.playerTeamId, newSeason)
+    for (const deal of lapsed) {
+      news.push({
+        season: newSeason,
+        round: 0,
+        category: 'finance',
+        tone: 'neutral',
+        headline: `Partnership ended — ${deal}`,
+        body: 'The slot is open. Offers will arrive over the coming matchdays.',
+      })
+    }
+
+    /**
+     * The ground over the summer: a new pitch, and a diary wiped clean.
+     *
+     * A surface left at 40 in May is not still at 40 in August — every ground
+     * in the world is relaid between seasons, and without this a manager who
+     * took one lucrative concert too many in April would carry the penalty into
+     * a season the decision had nothing to do with. It is the same argument as
+     * the pre-season stamina reset below.
+     *
+     * Bookings that were never held go with it. `settleStadiumForRound()`
+     * filters by season, so a `booked` row for a round that has passed would
+     * otherwise sit in the table for ever, un-settleable and still drawn on the
+     * diary.
+     */
+    await tx.update(teams).set({ pitchCondition: 100 })
+
+    await tx.update(stadiumEvents)
+      .set({ status: 'expired' })
+      .where(and(
+        eq(stadiumEvents.season, previousSeason),
+        inArray(stadiumEvents.status, ['offered', 'booked']),
+      ))
 
     for (const update of developments) {
       await tx.update(players)

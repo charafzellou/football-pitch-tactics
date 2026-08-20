@@ -33,8 +33,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const player = await db.query.players.findFirst({ where: eq(players.id, playerId) })
-  if (!player || player.teamId !== teamId || player.retired || player.freeAgent) {
-    throw createError({ statusCode: 404, statusMessage: 'That player is not in your squad' })
+
+  // Two people you can talk terms with: your own contracted players, and any
+  // free agent. The demand curve is priced identically for both — what changes
+  // is only whether a fee is involved, which is the caller's business.
+  const isOwnPlayer = Boolean(player) && player!.teamId === teamId && !player!.freeAgent
+  const isFreeAgent = Boolean(player) && Boolean(player!.freeAgent)
+
+  if (!player || player.retired || (!isOwnPlayer && !isFreeAgent)) {
+    throw createError({ statusCode: 404, statusMessage: 'That player is not available to negotiate with' })
   }
 
   const status = await getSeasonStatus()
@@ -67,6 +74,8 @@ export default defineEventHandler(async (event) => {
       contractUntilSeason: player.contractUntilSeason,
     },
     season: gameState.season,
+    /** True when he is unattached — signing him costs a wage and nothing else. */
+    freeAgent: isFreeAgent,
     /** Seasons of cover left, 0 once the deal runs out this summer. */
     seasonsRemaining: Math.max(0, player.contractUntilSeason - gameState.season),
     expiring: player.contractUntilSeason <= gameState.season,

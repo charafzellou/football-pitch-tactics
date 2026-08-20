@@ -4,7 +4,11 @@ import { computed, ref } from 'vue'
 const route = useRoute()
 const router = useRouter()
 
-const showTopbar = computed(() => route.path.startsWith('/game'))
+// The dismissal screen is a full stop, not a section of the app — every nav
+// link on it would only bounce straight back to it.
+const showTopbar = computed(() =>
+  route.path.startsWith('/game') && route.path !== '/game/dismissed',
+)
 
 // A thin progress bar during route changes. Data fetching happens after the
 // component mounts, so without this the app looks frozen between pages.

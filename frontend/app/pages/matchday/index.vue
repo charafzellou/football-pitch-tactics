@@ -55,6 +55,12 @@ const isHalfTime = ref(false)
 const finishFailed = ref(false)
 /** Set when one of the player's own players goes off injured and needs a decision. */
 const injuredPlayerId = ref<number | null>(null)
+/**
+ * Set when this result was the one that cost the manager their job. `finish` has
+ * always returned `board.dismissed` and nothing ever read it, so the sack landed
+ * silently and the player was sent back to a dashboard that behaved as normal.
+ */
+const dismissed = ref(false)
 const eventFeed = ref<FeedEntry[]>([])
 const reportOpen = ref(false)
 
@@ -390,10 +396,19 @@ async function finishMatch() {
 
   loadingMatch.value = true
   try {
-    await $fetch('/api/match/finish', { method: 'POST', body: { matchId: matchId.value } })
+    const result = await $fetch<any>('/api/match/finish', { method: 'POST', body: { matchId: matchId.value } })
     finishFailed.value = false
     isFinished.value = true
     reportOpen.value = true
+
+    if (result?.board?.dismissed) {
+      dismissed.value = true
+      toast.error({
+        title: 'You have been dismissed',
+        description: 'The board has ended your tenure. Close the report to see their verdict.',
+        duration: 8000,
+      })
+    }
   }
   catch (error) {
     // Leave `isFinished` false so the result isn't silently lost — the player
@@ -488,7 +503,7 @@ function skipChanges() {
 }
 
 function endMatch() {
-  router.push('/game')
+  router.push(dismissed.value ? '/game/dismissed' : '/game')
 }
 
 // ---------------------------------------------------------------------------

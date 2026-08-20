@@ -9,17 +9,28 @@
  * Charged for **every** club, not just the player's. If AI clubs paid no wages
  * the human would be competing against sides with no costs at all.
  */
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db'
-import { financeLedger, players, teams } from '../db/schema'
+import { financeLedger, players, sponsorshipDeals, teams } from '../db/schema'
 import {
   attendanceFor,
+  commercialPoolFor,
+  facilityUpkeepFor,
   formRatingFrom,
   gateReceiptsFor,
+  hospitalityIncomeFor,
+  matchdayOperatingCostFor,
+  merchandisingFor,
+  perimeterIncomeFor,
+  perimeterTier,
   prizeMoneyFor,
+  seasonTicketHolders,
+  seatsLostToBoxes,
   sponsorshipFor,
+  starPowerOf,
 } from './economy'
 import type { LedgerType } from './economy'
+import { activeLoans, settleDebtForRound } from './loans'
 import { recentForm } from './results-server'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -78,7 +89,23 @@ export interface MatchdayContext {
   positionByTeam: Map<number, number>
   /** Team id → recent W/D/L, newest last. */
   formByTeam: Map<number, ('W' | 'D' | 'L')[]>
+  /**
+   * The manager's club, whose money is itemised rather than blended.
+   *
+   * Every other club takes one `sponsorship` credit exactly as before. Giving
+   * all forty clubs deal rows, hoardings and a club shop would mean renewing a
+   * hundred and sixty contracts every rollover to produce a number the game
+   * then sums straight back into one. The manager's itemised streams are
+   * calibrated to net what that single credit nets — see `COMMERCIAL_UPLIFT` in
+   * `economy.ts` — so the asymmetry is presentational, never an advantage.
+   */
+  playerTeamId: number | null
+  /** Supporter confidence, which the club shop reads. */
+  fanConfidence: number
 }
+
+/** What the club shop assumes when there is no save to read confidence from. */
+const DEFAULT_FAN_CONFIDENCE = 65
 
 export interface MatchFinanceResult {
   attendance: number
@@ -86,9 +113,137 @@ export interface MatchFinanceResult {
   entries: LedgerEntry[]
 }
 
+/** What a home club needs to know about the fixture it is hosting. */
+interface HomeContext {
+  fill: number
+  opponentReputation: number
+}
+
 /**
- * One match's money: wages for both clubs, gate receipts for the home club,
- * commercial income for both.
+ * One club's entries for one matchday.
+ *
+ * The manager's club gets a line per stream so the finance page can show a real
+ * profit and loss; every other club gets the single blended credit it always
+ * had. Both paths run through the same wage bill and the same `postLedger`.
+ */
+async function clubEntries(
+  tx: Tx,
+  club: typeof teams.$inferSelect,
+  context: MatchdayContext,
+  home: HomeContext | null,
+): Promise<LedgerEntry[]> {
+  const { season, round, leagueSize, positionByTeam, playerTeamId, fanConfidence } = context
+  const position = positionByTeam.get(club.id) ?? Math.ceil(leagueSize / 2)
+  const base = { teamId: club.id, season, round }
+  const entries: LedgerEntry[] = []
+
+  const squad = await tx.query.players.findMany({
+    where: eq(players.teamId, club.id),
+    columns: { wage: true, retired: true, freeAgent: true, skillLevel: true },
+  })
+
+  // A released player still carries their old club's `team_id` — it is what
+  // the market shows as "released by" — so the wage bill has to exclude them
+  // explicitly as well as the retired.
+  const contracted = squad.filter(player => !player.retired && !player.freeAgent)
+  const wageBill = contracted.reduce((total, player) => total + (player.wage ?? 0), 0)
+
+  if (wageBill > 0)
+    entries.push({ ...base, type: 'wages', amount: -wageBill, description: 'Player wages' })
+
+  if (club.id !== playerTeamId) {
+    entries.push({
+      ...base,
+      type: 'sponsorship',
+      amount: sponsorshipFor(club.reputation, position, leagueSize),
+      description: 'Commercial income',
+    })
+    return entries
+  }
+
+  const pool = commercialPoolFor(club.reputation, position, leagueSize)
+
+  /**
+   * Partners pay what they signed for, not what the slot is worth.
+   *
+   * An empty slot earns nothing — which is the whole consequence of letting a
+   * deal lapse, and the reason the offers on the commercial page are worth
+   * answering. A save's opening deals are signed at the market rate by
+   * `createSave()`, so a club that simply renews on time earns what the blended
+   * credit used to pay it.
+   */
+  const deals = (await tx.query.sponsorshipDeals.findMany({
+    where: and(eq(sponsorshipDeals.teamId, club.id), eq(sponsorshipDeals.status, 'active')),
+  })).filter(deal => deal.signedSeason <= season && deal.untilSeason >= season)
+
+  const partnerFees = deals.reduce((total, deal) => total + deal.baseFee, 0)
+
+  if (partnerFees > 0) {
+    entries.push({
+      ...base,
+      type: 'sponsorship',
+      amount: partnerFees,
+      description: deals.map(deal => deal.sponsorName).join(', '),
+    })
+  }
+
+  entries.push({
+    ...base,
+    type: 'merchandising',
+    amount: merchandisingFor(pool, fanConfidence, starPowerOf(contracted)),
+    description: 'Club shop and licensing',
+  })
+
+  const upkeep = facilityUpkeepFor(pool, club.academyLevel, club.trainingLevel)
+  if (upkeep > 0)
+    entries.push({ ...base, type: 'facilities', amount: -upkeep, description: 'Academy and training ground' })
+
+  /**
+   * Debt service, charged against the balance the club started the matchday
+   * with — so the overdraft is priced on the hole that existed when the money
+   * was owed, not on the one this matchday's wages are about to dig.
+   */
+  entries.push(...await settleDebtForRound(tx, {
+    teamId: club.id,
+    season,
+    round,
+    balance: club.bankBalance,
+  }))
+
+  if (!home)
+    return entries
+
+  entries.push({
+    ...base,
+    type: 'perimeter',
+    amount: perimeterIncomeFor(pool, club.perimeterLevel, home.fill, position, leagueSize),
+    description: `${perimeterTier(club.perimeterLevel).name} — matchday advertising`,
+  })
+
+  const hospitality = hospitalityIncomeFor(club.hospitalityBoxes, club.reputation, home.opponentReputation)
+  if (hospitality > 0) {
+    entries.push({
+      ...base,
+      type: 'hospitality',
+      amount: hospitality,
+      description: `Executive boxes — ${club.hospitalityBoxes} sold`,
+    })
+  }
+
+  entries.push({
+    ...base,
+    type: 'operating',
+    amount: -matchdayOperatingCostFor(pool, home.fill),
+    description: 'Stewarding, policing and matchday operations',
+  })
+
+  return entries
+}
+
+/**
+ * One match's money: wages and commercial income for both clubs, and everything
+ * that only happens where the match is played — gate, advertising, hospitality
+ * and the cost of opening the ground — for the home club.
  *
  * Wages are charged per match rather than per calendar week because a matchday
  * is the only cadence the game's clock actually has.
@@ -107,47 +262,14 @@ export async function settleMatchFinances(
   if (!home || !away)
     return { attendance: 0, gate: 0, entries: [] }
 
-  const entries: LedgerEntry[] = []
   const { season, round, leagueSize, positionByTeam, formByTeam } = context
 
-  for (const club of [home, away]) {
-    const squad = await tx.query.players.findMany({
-      where: eq(players.teamId, club.id),
-      columns: { wage: true, retired: true, freeAgent: true },
-    })
+  // Executive boxes are built out of the ground, so those seats cannot also be
+  // sold at the turnstile.
+  const generalCapacity = Math.max(0, home.stadiumCapacity - seatsLostToBoxes(home.hospitalityBoxes))
 
-    // A released player still carries their old club's `team_id` — it is what
-    // the market shows as "released by" — so the wage bill has to exclude them
-    // explicitly as well as the retired.
-    const wageBill = squad
-      .filter(player => !player.retired && !player.freeAgent)
-      .reduce((total, player) => total + (player.wage ?? 0), 0)
-
-    if (wageBill > 0) {
-      entries.push({
-        teamId: club.id,
-        season,
-        round,
-        type: 'wages',
-        amount: -wageBill,
-        description: 'Player wages',
-      })
-    }
-
-    const position = positionByTeam.get(club.id) ?? Math.ceil(leagueSize / 2)
-    entries.push({
-      teamId: club.id,
-      season,
-      round,
-      type: 'sponsorship',
-      amount: sponsorshipFor(club.reputation, position, leagueSize),
-      description: 'Commercial income',
-    })
-  }
-
-  // Only the home club takes gate receipts.
-  const attendance = attendanceFor({
-    capacity: home.stadiumCapacity,
+  const naturalAttendance = attendanceFor({
+    capacity: generalCapacity,
     reputation: home.reputation,
     ticketPrice: home.ticketPrice,
     opponentReputation: away.reputation,
@@ -156,7 +278,25 @@ export async function settleMatchFinances(
     leagueSize,
   })
 
-  const gate = gateReceiptsFor(attendance, home.ticketPrice)
+  /**
+   * Season-ticket holders turn up whatever happens, and paid in the summer.
+   *
+   * So they are a floor under the crowd and a hole in the gate at the same
+   * time: the club banked their money before a ball was kicked, and cannot
+   * charge them again. Only walk-up trade pays today. At the default zero
+   * share this is arithmetically identical to charging everybody.
+   */
+  const holders = seasonTicketHolders(generalCapacity, home.seasonTicketShare)
+  const attendance = Math.max(naturalAttendance, holders)
+  const walkUp = Math.max(0, attendance - holders)
+
+  const fill = generalCapacity > 0 ? attendance / generalCapacity : 0
+  const gate = gateReceiptsFor(walkUp, home.ticketPrice)
+
+  const entries: LedgerEntry[] = [
+    ...await clubEntries(tx, home, context, { fill, opponentReputation: away.reputation }),
+    ...await clubEntries(tx, away, context, null),
+  ]
 
   entries.push({
     teamId: home.id,
@@ -164,7 +304,10 @@ export async function settleMatchFinances(
     round,
     type: 'gate',
     amount: gate,
-    description: `Gate receipts — ${attendance.toLocaleString('en-IE')} at €${home.ticketPrice}`,
+    description: holders > 0
+      ? `Gate receipts — ${walkUp.toLocaleString('en-IE')} paying at €${home.ticketPrice}, `
+        + `${holders.toLocaleString('en-IE')} season tickets`
+      : `Gate receipts — ${attendance.toLocaleString('en-IE')} at €${home.ticketPrice}`,
   })
 
   await postLedger(tx, entries)
@@ -207,14 +350,25 @@ export async function buildMatchdayContext(
   round: number,
 ): Promise<MatchdayContext> {
   const { computeStandings } = await import('./standings')
-  const table = await computeStandings(leagueId, season)
+  const [table, save] = await Promise.all([
+    computeStandings(leagueId, season),
+    db.query.game.findFirst(),
+  ])
 
   const positionByTeam = new Map<number, number>()
   table.forEach((row, index) => positionByTeam.set(row.teamId, index + 1))
 
   const formByTeam = await recentForm(leagueId, season, table.map(row => row.teamId))
 
-  return { season, round, leagueSize: table.length, positionByTeam, formByTeam }
+  return {
+    season,
+    round,
+    leagueSize: table.length,
+    positionByTeam,
+    formByTeam,
+    playerTeamId: save?.playerTeamId ?? null,
+    fanConfidence: save?.fanConfidence ?? DEFAULT_FAN_CONFIDENCE,
+  }
 }
 
 /**
@@ -239,3 +393,104 @@ export async function leagueStandingFor(teamId: number, season: number, round = 
 }
 
 export { recentForm }
+
+// ---------------------------------------------------------------------------
+// The forecast
+// ---------------------------------------------------------------------------
+
+/**
+ * Assembles what `projectHorizon()` needs and runs it.
+ *
+ * Lives here rather than in the endpoint so `verify-economy.ts` can measure the
+ * same forecast the manager is shown. A projection nobody checks against the
+ * season it predicted is decoration, and it can only be checked if the harness
+ * and the page compute it identically.
+ */
+export async function forecastForSave(gameState: {
+  playerTeamId: number
+  season: number
+  boardExpectation: number
+  fanConfidence: number
+}) {
+  const { projectHorizon, transferBudget, wageBudget } = await import('./projection')
+  const { getSeasonStatus } = await import('./season')
+
+  const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
+  if (!club) return null
+
+  const [squad, status, deals, book] = await Promise.all([
+    db.query.players.findMany({
+      where: and(eq(players.teamId, club.id), eq(players.retired, 0), eq(players.freeAgent, 0)),
+      columns: {
+        id: true, age: true, wage: true, marketValue: true, skillLevel: true, contractUntilSeason: true,
+      },
+    }),
+    getSeasonStatus(),
+    db.query.sponsorshipDeals.findMany({
+      where: and(eq(sponsorshipDeals.teamId, club.id), eq(sponsorshipDeals.status, 'active')),
+    }),
+    activeLoans(db, club.id),
+  ])
+
+  const roundsPlayed = status?.round ?? 0
+  const totalRounds = status?.totalRounds ?? 38
+  const standing = await leagueStandingFor(club.id, gameState.season, roundsPlayed)
+  const leagueSize = standing?.leagueSize ?? 20
+
+  /**
+   * Where the club is heading.
+   *
+   * Early in a season the table is five matchdays of noise, so the board's own
+   * target is the better estimate until enough has been played to beat it.
+   * After that the table is the evidence.
+   */
+  const expectedPosition = roundsPlayed >= 5
+    ? (standing?.position ?? gameState.boardExpectation)
+    : gameState.boardExpectation
+
+  const spread = 4
+
+  const projection = projectHorizon({
+    season: gameState.season,
+    roundsPlayed,
+    totalRounds,
+    balance: club.bankBalance,
+    reputation: club.reputation,
+    leagueSize,
+    expectedPosition,
+    bestPosition: Math.max(1, expectedPosition - spread),
+    worstPosition: Math.min(leagueSize, expectedPosition + spread),
+    stadiumCapacity: club.stadiumCapacity,
+    ticketPrice: club.ticketPrice,
+    hospitalityBoxes: club.hospitalityBoxes,
+    perimeterLevel: club.perimeterLevel,
+    academyLevel: club.academyLevel,
+    trainingLevel: club.trainingLevel,
+    seasonTicketShare: club.seasonTicketShare,
+    seasonTicketDiscount: club.seasonTicketDiscount,
+    fanConfidence: gameState.fanConfidence,
+    squad,
+    deals: deals.map(deal => ({
+      slot: deal.slot,
+      fee: deal.baseFee,
+      untilSeason: deal.untilSeason,
+    })),
+    loans: book.map(loan => ({
+      outstanding: loan.outstanding,
+      ratePerSeason: loan.ratePerSeason,
+      untilSeason: loan.untilSeason,
+      repaymentPerRound: loan.repaymentPerRound,
+    })),
+  })
+
+  return {
+    season: gameState.season,
+    round: roundsPlayed,
+    totalRounds,
+    expectedPosition,
+    leagueSize,
+    projection,
+    wageBudget: wageBudget(projection),
+    transferBudget: transferBudget(projection),
+  }
+}

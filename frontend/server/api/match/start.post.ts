@@ -3,6 +3,7 @@ import { db } from '../../db'
 import { matchEvents, matches, teams } from '../../db/schema'
 import { kickOff } from '../../core/match-engine'
 import { buildTeam, eventTypeNamesById } from '../../core/match-session'
+import { requireActiveManager } from '../../core/save'
 import { parseLineup } from '#shared/lineup'
 import { parseMatchState } from '#shared/match-state'
 
@@ -10,10 +11,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ matchId?: number | string }>(event)
   const requestedMatchId = Number(body?.matchId)
 
-  const gameState = await db.query.game.findFirst()
-  if (!gameState) {
-    throw createError({ statusCode: 404, statusMessage: 'Game not found' })
-  }
+  const gameState = await requireActiveManager()
 
   // Resuming a specific fixture only makes sense if it hasn't been played
   // yet. Falling back to "the next one" prefers a match already paused

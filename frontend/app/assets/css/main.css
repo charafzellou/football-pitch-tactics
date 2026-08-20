@@ -478,8 +478,11 @@
     background-image: linear-gradient(90deg, transparent, var(--app-surface-border-strong) 20%, var(--app-surface-border-strong) 80%, transparent);
   }
 
+  /* Content is centred both ways. Children keep the full card width — so stat
+     bars, truncation and `text-left` overrides still behave — and the inline
+     text inside them is centred by `text-center`. */
   .app-metric-card {
-    @apply rounded-2xl border p-4 transition-colors;
+    @apply flex flex-col justify-center rounded-2xl border p-4 text-center transition-colors;
     color: var(--app-text-soft);
     background-color: var(--app-surface-muted);
     border-width: var(--app-border-width);
