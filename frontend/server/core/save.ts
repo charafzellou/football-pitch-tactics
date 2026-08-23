@@ -1,6 +1,20 @@
 /**
  * The save's own lifecycle.
  *
+ * A save is identified by an anonymous UUID token, set as an httpOnly
+ * cookie the moment `createSave()` runs and resolved on every request by
+ * `server/middleware/save-context.ts` into `event.context.gameId`. There is
+ * no login — any visitor who starts a game gets their own save, and the
+ * cookie is what routes their browser back to it.
+ *
+ * `teams` and `players` hold two kinds of row: seed *template* rows
+ * (`game_id IS NULL`, the reference roster `db:seed` produces) and live
+ * per-save *clones* (`game_id` set, owned by exactly one save).
+ * `createSave()` clones an entire world of templates into a fresh
+ * namespace rather than resetting the shared template rows in place —
+ * that in-place reset is what used to make every new save overwrite the
+ * one before it.
+ *
  * `game.dismissed_at_season` is the only flag that *ends* a save rather than
  * changing it. It was written by `settleMatchday` and `settleSeasonEnd` and then
  * read by nothing: the schema called a dismissed save "read-only", but every
@@ -10,33 +24,31 @@
  *
  * These helpers are that missing read. `requireActiveManager` is the guard for
  * anything that advances or mutates the world; `requireSave` is for the
- * read-only routes that only need the row to exist.
+ * read-only routes that only need the row to exist. Both take the request's
+ * `H3Event` so they can resolve `event.context.gameId` — set once per
+ * request by the save-context middleware — instead of guessing which save a
+ * caller means.
  */
-import { eq } from 'drizzle-orm'
+import type { H3Event } from 'h3'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../db'
 import {
-  clubNews,
-  financeLedger,
   game,
-  loans,
-  matchEvents,
   matches,
+  players,
   season as seasonTable,
-  seasonSummary,
   sponsorshipDeals,
-  stadiumEvents,
   teams,
-  transferOffers,
 } from '../db/schema'
 import { buildSeasonFixtures, seasonStartDate } from './calendar'
 import { expectationFor } from './board'
-import { computeStandings } from './standings'
 import {
   DEFAULT_FACILITY_LEVEL,
   DEFAULT_SEASON_TICKET_DISCOUNT,
   commercialPoolFor,
   fairTicketPrice,
   slotValueFor,
+  squadStrength,
   startingBalanceFor,
 } from './economy'
 import { openingDeals } from './sponsors'
@@ -46,14 +58,16 @@ export type GameRow = typeof game.$inferSelect
 /** Every save starts in season 1. */
 export const OPENING_SEASON = 1
 
-/** The current save, or null when none exists. */
-export async function activeSave(): Promise<GameRow | null> {
-  return (await db.query.game.findFirst()) ?? null
+/** The current save for this request, or null when none exists. */
+export async function activeSave(event: H3Event): Promise<GameRow | null> {
+  const gameId = event.context.gameId
+  if (!gameId) return null
+  return (await db.query.game.findFirst({ where: eq(game.id, gameId) })) ?? null
 }
 
-/** The current save. 404s when there isn't one. */
-export async function requireSave(): Promise<GameRow> {
-  const gameState = await db.query.game.findFirst()
+/** The current save for this request. 404s when there isn't one. */
+export async function requireSave(event: H3Event): Promise<GameRow> {
+  const gameState = await activeSave(event)
 
   if (!gameState) {
     throw createError({ statusCode: 404, statusMessage: 'Game not found' })
@@ -63,8 +77,9 @@ export async function requireSave(): Promise<GameRow> {
 }
 
 /**
- * The current save, refusing anything a dismissed manager should not be able to
- * do — playing a match, buying, selling, renaming an XI, rolling a season over.
+ * The current save for this request, refusing anything a dismissed manager
+ * should not be able to do — playing a match, buying, selling, renaming an
+ * XI, rolling a season over.
  *
  * Deliberately *not* applied to `POST /api/match/finish`: that route only
  * commits a match already in flight, and dismissal is decided by
@@ -73,8 +88,8 @@ export async function requireSave(): Promise<GameRow> {
  * already saved. Blocking `start`, `advance` and `changes` is what actually
  * prevents a new result being produced.
  */
-export async function requireActiveManager(): Promise<GameRow> {
-  const gameState = await requireSave()
+export async function requireActiveManager(event: H3Event): Promise<GameRow> {
+  const gameState = await requireSave(event)
 
   if (gameState.dismissedAtSeason !== null) {
     throw createError({
@@ -94,77 +109,104 @@ export async function requireActiveManager(): Promise<GameRow> {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything a new save resets, in one place.
- *
- * `POST /api/game/start` used to hold this inline, which meant the headless
- * drivers under `scripts/` created saves that reset less than the real endpoint
- * did — and `verify-economy.ts` duly failed its ledger-integrity check against
- * rows left behind by its own previous run. A verification harness that does not
- * start from the same state as the game is not verifying the game.
- *
- * Squads are deliberately *not* rebuilt: `match_events` and transfer history
- * reference those rows, so ages, development and retirements carry across saves.
- * `bun run db:setup` is the full reset.
+ * Ranks the template roster of one league by squad strength, the same way
+ * `seed.ts`'s economy pass does. Needed because `createSave()` has to size
+ * the chosen club's opening board expectation *before* any fixtures (and
+ * therefore any standings) exist for this save — `computeStandings()` reads
+ * `matches`, which a save that doesn't exist yet has none of.
  */
-export async function createSave(input: { teamId: number; sackingEnabled?: boolean }): Promise<GameRow> {
-  const club = await db.query.teams.findFirst({ where: eq(teams.id, input.teamId) })
-  if (!club)
-    throw createError({ statusCode: 404, statusMessage: 'Club not found' })
+async function rankTemplateLeague(leagueId: number): Promise<{ teamId: number }[]> {
+  const leagueTeams = await db.query.teams.findMany({
+    where: and(eq(teams.leagueId, leagueId), isNull(teams.gameId)),
+  })
+  if (!leagueTeams.length) return []
 
-  // The board's opening target comes from the club's standing. Season 1 has no
-  // previous finish to temper it with, so reputation alone sets the bar. Read
-  // before the reset below, which is about to empty the table it computes from.
-  const table = await computeStandings(club.leagueId, OPENING_SEASON)
-  const boardExpectation = expectationFor(club.reputation, null, table.length || 20)
-
-  const leagues = await db.query.leagues.findMany()
-  const allTeams = await db.query.teams.findMany()
-
-  const startDate = seasonStartDate(OPENING_SEASON)
-  const fixtures: (typeof matches.$inferInsert)[] = []
-
-  for (const league of leagues) {
-    const leagueTeams = allTeams.filter(team => team.leagueId === league.id)
-    if (leagueTeams.length < 2)
-      continue
-
-    fixtures.push(...buildSeasonFixtures(leagueTeams.map(team => team.id), OPENING_SEASON, startDate))
+  const squadByTeam = new Map<number, { skillLevel: number }[]>()
+  for (const team of leagueTeams) {
+    squadByTeam.set(team.id, await db.query.players.findMany({
+      where: and(eq(players.teamId, team.id), isNull(players.gameId)),
+      columns: { skillLevel: true },
+    }))
   }
 
+  return [...leagueTeams]
+    .sort((a, b) => squadStrength(squadByTeam.get(b.id) ?? []) - squadStrength(squadByTeam.get(a.id) ?? []))
+    .map(team => ({ teamId: team.id }))
+}
+
+/**
+ * Creates a save by cloning the template roster into a fresh, save-owned
+ * namespace.
+ *
+ * `input.teamId` is always a *template* team id (`game_id IS NULL`) — the
+ * new-game wizard only ever lists template teams (`GET /api/teams`). Every
+ * template team in both leagues is cloned into this save (not just the
+ * player's own club), because the player's world needs forty clubs to
+ * compete against, not one.
+ *
+ * The `game` row is inserted first, with foreign-key checks deferred for
+ * the rest of the transaction (`PRAGMA defer_foreign_keys = ON`), because
+ * every child row below (`teams.game_id`, `players.game_id`,
+ * `season.game_id`, `matches.game_id`) needs `game.id` to already exist as
+ * a value, while `game.player_team_id`/`game.season` themselves can only be
+ * known once the clones exist. SQLite only re-checks deferred FKs at COMMIT,
+ * by which point every row is consistent.
+ *
+ * Squads are deliberately cloned, never referenced: two saves must never
+ * share a player row, or a transfer/injury/retirement in one save would
+ * silently show up in another's.
+ */
+export async function createSave(input: { teamId: number; sackingEnabled?: boolean }): Promise<GameRow> {
+  const templateClub = await db.query.teams.findFirst({
+    where: and(eq(teams.id, input.teamId), isNull(teams.gameId)),
+  })
+  if (!templateClub)
+    throw createError({ statusCode: 404, statusMessage: 'Club not found' })
+
+  const table = await rankTemplateLeague(templateClub.leagueId)
+  const boardExpectation = expectationFor(templateClub.reputation, null, table.length || 20)
+
+  const leagues = await db.query.leagues.findMany()
+  const templateTeams = await db.query.teams.findMany({ where: isNull(teams.gameId) })
+  const templatePlayers = await db.query.players.findMany({ where: isNull(players.gameId) })
+
+  const token = crypto.randomUUID()
+
   return db.transaction(async (tx) => {
-    await tx.delete(game)
-    // Board reactions and bids belong to the manager who received them.
-    await tx.delete(clubNews)
-    await tx.delete(transferOffers)
+    // Deferred rather than off: still enforced at COMMIT, just not after
+    // every individual statement — which is what lets `game` be inserted
+    // before the rows it references (its own clones) exist yet.
+    await tx.run(sql`PRAGMA defer_foreign_keys = ON`)
 
-    // Results and the money they moved belong to the save being discarded.
-    // `match_events` references `matches`, so it goes first.
-    await tx.delete(matchEvents)
-    await tx.delete(matches)
-    await tx.delete(seasonSummary)
-    await tx.delete(financeLedger)
-    await tx.delete(sponsorshipDeals)
-    await tx.delete(stadiumEvents)
-    await tx.delete(loans)
-    await tx.update(seasonTable).set({ ended: 'false' })
+    const [gameRow] = await tx.insert(game).values({
+      token,
+      // `playerTeamId` is a placeholder — patched once the clones below give
+      // us the real cloned club id. Safe only because foreign-key checks are
+      // deferred to COMMIT. `season` needs no such patch: it's a plain
+      // number, not a foreign key, so OPENING_SEASON is already correct.
+      playerTeamId: input.teamId,
+      season: OPENING_SEASON,
+      currentDate: new Date(),
+      sackingEnabled: input.sackingEnabled ? 1 : 0,
+      boardExpectation,
+    }).returning()
+    if (!gameRow) throw createError({ statusCode: 500, statusMessage: 'Failed to create save' })
 
-    /**
-     * A save owns its clubs' finances, not just its results.
-     *
-     * Only the `game` row and the fixtures used to be replaced, so a second save
-     * on the same database inherited the first one's bank balances, ticket
-     * prices and ventures. A brand-new game could open with a club that had
-     * already spent two seasons going broke, and every projection built on that
-     * balance was fiction. Balances come back from the same
-     * `startingBalanceFor()` the seed uses, and every venture returns to its
-     * opening state — including a ground whose name had been sold.
-     */
-    for (const row of allTeams) {
-      await tx.update(teams).set({
+    // ---- Clone every template team into this save's namespace -------------
+    const clonedTeamIdByTemplateId = new Map<number, number>()
+    for (const row of templateTeams) {
+      const [cloned] = await tx.insert(teams).values({
+        gameId: gameRow.id,
+        name: row.name,
+        leagueId: row.leagueId,
         bankBalance: startingBalanceFor(row.reputation, row.stadiumCapacity),
-        ticketPrice: fairTicketPrice(row.reputation),
+        tactics: null,
+        lineup: null,
+        reputation: row.reputation,
         stadiumName: row.stadiumBaseName ?? row.stadiumName,
         stadiumBaseName: row.stadiumBaseName ?? row.stadiumName,
+        stadiumCapacity: row.stadiumCapacity,
+        ticketPrice: fairTicketPrice(row.reputation),
         perimeterLevel: 0,
         hospitalityBoxes: 0,
         academyLevel: DEFAULT_FACILITY_LEVEL,
@@ -172,51 +214,76 @@ export async function createSave(input: { teamId: number; sackingEnabled?: boole
         seasonTicketShare: 0,
         seasonTicketDiscount: DEFAULT_SEASON_TICKET_DISCOUNT,
         pitchCondition: 100,
-        // A saved XI may name a player who retired during the previous save.
-        lineup: null,
-      }).where(eq(teams.id, row.id))
+      }).returning({ id: teams.id })
+      if (!cloned) throw createError({ statusCode: 500, statusMessage: 'Failed to clone team' })
+      clonedTeamIdByTemplateId.set(row.id, cloned.id)
     }
 
-    /**
-     * The club opens with its three shirt-and-kit slots already sold at the
-     * market rate, and its ground still called what it has always been called.
-     *
-     * Starting with everything unsold would have been the tidier model and is
-     * wrong twice over: a real club is never between every sponsor at once, and
-     * a manager would spend their first season earning back income the game had
-     * silently taken off them. Naming rights are left unsold because that one
-     * *is* a decision — it is the slot with something to lose.
-     */
-    const pool = commercialPoolFor(club.reputation, boardExpectation, table.length || 20)
+    // ---- Clone every template player onto their cloned club ---------------
+    const playerRows = templatePlayers.map(player => ({
+      gameId: gameRow.id,
+      name: player.name,
+      age: player.age,
+      position: player.position,
+      skillLevel: player.skillLevel,
+      potential: player.potential,
+      stamina: 100,
+      injuredMatches: 0,
+      retired: 0,
+      marketValue: player.marketValue,
+      wage: player.wage,
+      contractUntilSeason: player.contractUntilSeason,
+      freeAgent: 0,
+      teamId: clonedTeamIdByTemplateId.get(player.teamId)!,
+    }))
+    if (playerRows.length)
+      await tx.insert(players).values(playerRows)
+
+    // ---- Opening sponsorship deals, on the cloned club ---------------------
+    const clonedPlayerClubId = clonedTeamIdByTemplateId.get(input.teamId)!
+    const pool = commercialPoolFor(templateClub.reputation, boardExpectation, table.length || 20)
     await tx.insert(sponsorshipDeals).values(openingDeals({
-      teamId: input.teamId,
+      teamId: clonedPlayerClubId,
       season: OPENING_SEASON,
       slotFee: slot => slotValueFor(pool, slot),
     }))
 
+    // ---- This save's own season 1 row (year/ended bookkeeping only) -------
+    await tx.insert(seasonTable).values({
+      gameId: gameRow.id,
+      seasonNumber: OPENING_SEASON,
+      year: '2024',
+      ended: 'false',
+    })
+
+    // ---- This save's own season-1 fixtures, over the cloned team ids ------
+    const startDate = seasonStartDate(OPENING_SEASON)
+    const fixtures: (typeof matches.$inferInsert)[] = []
+
+    for (const league of leagues) {
+      const leagueTeamIds = templateTeams
+        .filter(t => t.leagueId === league.id)
+        .map(t => clonedTeamIdByTemplateId.get(t.id))
+        .filter((id): id is number => id !== undefined)
+
+      if (leagueTeamIds.length < 2) continue
+
+      fixtures.push(...buildSeasonFixtures(leagueTeamIds, OPENING_SEASON, startDate)
+        .map(fixture => ({ ...fixture, gameId: gameRow.id })))
+    }
     if (fixtures.length)
       await tx.insert(matches).values(fixtures)
 
-    const inserted = await tx.insert(game).values({
-      playerTeamId: input.teamId,
-      season: OPENING_SEASON,
-      /**
-       * The instant before the season's first kickoff.
-       *
-       * This was `new Date()` — the real wall clock — while fixtures are dated
-       * from a fixed season start (10 August 2024 for season 1). Once that date
-       * passed in the real world, every fixture in a brand-new save was already
-       * behind the calendar, and anything reading the schedule as "dated ahead
-       * of today" came back empty: the dashboard drew Club Status with nothing
-       * beside it, no Next Match card and no way to reach Matchday.
-       * `rollOverSeason` has always set the cursor from the fixture list rather
-       * than from the clock; this now matches it.
-       */
-      currentDate: new Date(startDate.getTime() - 1000),
-      sackingEnabled: input.sackingEnabled ? 1 : 0,
-      boardExpectation,
-    }).returning()
+    // ---- Patch the game row with the real playerTeamId ---------------------
+    const [finalGame] = await tx.update(game)
+      .set({
+        playerTeamId: clonedPlayerClubId,
+        currentDate: new Date(startDate.getTime() - 1000),
+      })
+      .where(eq(game.id, gameRow.id))
+      .returning()
 
-    return inserted[0]!
+    if (!finalGame) throw createError({ statusCode: 500, statusMessage: 'Failed to finalize save' })
+    return finalGame
   })
 }

@@ -12,6 +12,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db'
 import { game, matches, players, season as seasonTable, seasonSummary, stadiumEvents, teams } from '../db/schema'
+import type { GameRow } from './save'
 import { buildSeasonFixtures, roundsFor, seasonStartDate } from './calendar'
 import { computeStandings } from './standings'
 import type { StandingRow } from './standings'
@@ -49,13 +50,12 @@ export interface SeasonStatus {
 }
 
 /** Where the current season has got to. */
-export async function getSeasonStatus(): Promise<SeasonStatus | null> {
-  const gameState = await db.query.game.findFirst()
+export async function getSeasonStatus(gameState: GameRow): Promise<SeasonStatus | null> {
   if (!gameState)
     return null
 
   const all = await db.query.matches.findMany({
-    where: eq(matches.season, gameState.season),
+    where: and(eq(matches.season, gameState.season), eq(matches.gameId, gameState.id)),
     columns: { id: true, played: true, round: true, homeTeamId: true, awayTeamId: true },
   })
 
@@ -161,14 +161,13 @@ function medianOf(values: number[]): number {
  * because the next season's fixtures are inserted at the end and would
  * otherwise pollute the table the champion is read from.
  */
-export async function rollOverSeason(): Promise<RolloverSummary> {
-  const gameState = await db.query.game.findFirst()
+export async function rollOverSeason(gameState: GameRow): Promise<RolloverSummary> {
   if (!gameState) {
     throw createError({ statusCode: 400, statusMessage: 'No active save' })
   }
 
   const outstanding = await db.query.matches.findMany({
-    where: and(eq(matches.season, gameState.season), eq(matches.played, 0)),
+    where: and(eq(matches.season, gameState.season), eq(matches.gameId, gameState.id), eq(matches.played, 0)),
     columns: { id: true },
   })
 
@@ -183,7 +182,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
   const newSeason = previousSeason + 1
 
   const leagues = await db.query.leagues.findMany()
-  const allTeams = await db.query.teams.findMany()
+  const allTeams = await db.query.teams.findMany({ where: eq(teams.gameId, gameState.id) })
   const teamNameById = new Map(allTeams.map(team => [team.id, team.name]))
   const teamById = new Map(allTeams.map(team => [team.id, team]))
 
@@ -198,7 +197,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
   const news: NewsItem[] = []
 
   for (const league of leagues) {
-    const table = await computeStandings(league.id, previousSeason)
+    const table = await computeStandings(league.id, previousSeason, gameState.id)
     const champion = table[0]
     if (!champion)
       continue
@@ -224,6 +223,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
     }
 
     summaryRows.push({
+      gameId: gameState.id,
       season: previousSeason,
       leagueId: league.id,
       championTeamId: champion.teamId,
@@ -236,7 +236,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
   }
 
   // ---- 2. Age, develop, retire ---------------------------------------------
-  const squad = await db.query.players.findMany({ where: eq(players.retired, 0) })
+  const squad = await db.query.players.findMany({ where: and(eq(players.gameId, gameState.id), eq(players.retired, 0)) })
 
   const retirements: SquadChange[] = []
   const developments: { id: number; age: number; skillLevel: number; marketValue: number }[] = []
@@ -476,6 +476,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
       const youth = generateYouthPlayer(team.id, needed, team.academyLevel)
       youthRows.push({
         ...youth,
+        gameId: gameState.id,
         // Youth arrive on modest terms, long enough that they are not back on
         // the market before they have developed.
         wage: requiredWage(
@@ -505,11 +506,18 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
     if (leagueTeams.length < 2)
       continue
 
-    nextFixtures.push(...buildSeasonFixtures(leagueTeams.map(team => team.id), newSeason, startDate))
+    nextFixtures.push(...buildSeasonFixtures(leagueTeams.map(team => team.id), newSeason, startDate)
+      .map(fixture => ({ ...fixture, gameId: gameState.id })))
   }
 
-  // Seasons are seeded ahead of time; make sure a row exists to reference.
-  const seasonRow = await db.query.season.findFirst({ where: eq(seasonTable.id, newSeason) })
+  // Seasons are created per-save by createSave() / this same rollover; make
+  // sure this save's row for `newSeason` exists to reference. Resolved by
+  // (gameId, seasonNumber) rather than assumed to be `newSeason` itself —
+  // `season.id` is a plain surrogate shared across every save now, not a
+  // stand-in for the season number.
+  const seasonRow = await db.query.season.findFirst({
+    where: and(eq(seasonTable.gameId, gameState.id), eq(seasonTable.seasonNumber, newSeason)),
+  })
 
   // ---- 6. Headlines ---------------------------------------------------------
   for (const champion of champions)
@@ -540,10 +548,18 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
     if (summaryRows.length)
       await tx.insert(seasonSummary).values(summaryRows)
 
-    await tx.update(seasonTable).set({ ended: 'true' }).where(eq(seasonTable.id, previousSeason))
+    await tx.update(seasonTable)
+      .set({ ended: 'true' })
+      .where(and(eq(seasonTable.gameId, gameState.id), eq(seasonTable.seasonNumber, previousSeason)))
 
-    if (!seasonRow)
-      await tx.insert(seasonTable).values({ id: newSeason, year: String(2024 + newSeason - 1), ended: 'false' })
+    if (!seasonRow) {
+      await tx.insert(seasonTable).values({
+        gameId: gameState.id,
+        seasonNumber: newSeason,
+        year: String(2024 + newSeason - 1),
+        ended: 'false',
+      })
+    }
 
     // Prize money for the season just finished, before anything else moves.
     for (const table of finalTables)
@@ -641,11 +657,12 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
      * otherwise sit in the table for ever, un-settleable and still drawn on the
      * diary.
      */
-    await tx.update(teams).set({ pitchCondition: 100 })
+    await tx.update(teams).set({ pitchCondition: 100 }).where(eq(teams.gameId, gameState.id))
 
     await tx.update(stadiumEvents)
       .set({ status: 'expired' })
       .where(and(
+        eq(stadiumEvents.teamId, gameState.playerTeamId),
         eq(stadiumEvents.season, previousSeason),
         inArray(stadiumEvents.status, ['offered', 'booked']),
       ))
@@ -705,7 +722,7 @@ export async function rollOverSeason(): Promise<RolloverSummary> {
       await tx.insert(players).values(youthRows)
 
     // A saved XI may name a player who has just retired or left.
-    await tx.update(teams).set({ lineup: null })
+    await tx.update(teams).set({ lineup: null }).where(eq(teams.gameId, gameState.id))
 
     if (nextFixtures.length)
       await tx.insert(matches).values(nextFixtures)

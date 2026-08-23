@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0661df29-17c8-4cdb-96a0-cfcdc51757ea",
+  "id": "3e7c443c-492f-44f6-8d96-dfa59a3073b1",
   "prevId": "7a51e72a-c565-480e-ab0a-d737571064cc",
   "tables": {
     "club_news": {
@@ -348,19 +348,6 @@
           "tableTo": "teams",
           "columnsFrom": [
             "player_team_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "game_season_season_id_fk": {
-          "name": "game_season_season_id_fk",
-          "tableFrom": "game",
-          "tableTo": "season",
-          "columnsFrom": [
-            "season"
           ],
           "columnsTo": [
             "id"
@@ -768,19 +755,6 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "matches_season_season_id_fk": {
-          "name": "matches_season_season_id_fk",
-          "tableFrom": "matches",
-          "tableTo": "season",
-          "columnsFrom": [
-            "season"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1118,19 +1092,6 @@
           "tableTo": "game",
           "columnsFrom": [
             "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "season_summary_season_season_id_fk": {
-          "name": "season_summary_season_season_id_fk",
-          "tableFrom": "season_summary",
-          "tableTo": "season",
-          "columnsFrom": [
-            "season"
           ],
           "columnsTo": [
             "id"

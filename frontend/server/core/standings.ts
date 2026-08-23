@@ -24,15 +24,22 @@ export interface StandingRow {
   points: number
 }
 
-export async function computeStandings(leagueId: number, season: number): Promise<StandingRow[]> {
-  const leagueTeams = await db.query.teams.findMany({ where: eq(teams.leagueId, leagueId) })
+export async function computeStandings(leagueId: number, season: number, gameId: number): Promise<StandingRow[]> {
+  // `leagueId` alone is not save-scoped — "Premier League" is shared
+  // identity across every save's clone of it, so every clone team in that
+  // league across every save shares the same `league_id` value. Without the
+  // `gameId` filter this would pull every other save's clones in as bogus
+  // 0-played rows in the table.
+  const leagueTeams = await db.query.teams.findMany({
+    where: and(eq(teams.leagueId, leagueId), eq(teams.gameId, gameId)),
+  })
   if (!leagueTeams.length)
     return []
 
   const teamIds = new Set(leagueTeams.map(team => team.id))
 
   const played = await db.query.matches.findMany({
-    where: and(eq(matches.season, season), isNotNull(matches.homeScore)),
+    where: and(eq(matches.season, season), eq(matches.gameId, gameId), isNotNull(matches.homeScore)),
   })
 
   const rows = new Map<number, StandingRow>(
