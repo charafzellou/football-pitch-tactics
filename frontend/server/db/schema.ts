@@ -1,4 +1,4 @@
-import { sqliteTable, integer, real, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, real, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 /**
  * Represents the `countries` table in the database.
@@ -27,6 +27,11 @@ export const leagues = sqliteTable('leagues', {
  */
 export const teams = sqliteTable('teams', {
   id: integer('id').primaryKey(),
+  /**
+   * `NULL` = a seed template row (the reference roster every save is cloned
+   * from). Non-null = a live per-save clone, owned by exactly one save.
+   */
+  gameId: integer('game_id').references(() => game.id),
   name: text('name').notNull(),
   leagueId: integer('league_id')
     .notNull()
@@ -97,6 +102,13 @@ export const positions = sqliteTable('positions', {
  */
 export const players = sqliteTable('players', {
   id: integer('id').primaryKey(),
+  /**
+   * Denormalized from `teams.gameId` — set once at insert/clone time and
+   * never changed after (a player never moves to another save). Avoids a
+   * join on every squad read, which happens on the match-simulation hot
+   * path. `NULL` for the seed template roster, same convention as `teams`.
+   */
+  gameId: integer('game_id').references(() => game.id),
   name: text('name').notNull(),
   age: integer('age').notNull(),
   position: text('position').notNull(),
@@ -152,13 +164,23 @@ export const players = sqliteTable('players', {
 
 /**
  * Represents the `season` table in the database.
- * This table stores information about each season in the game.
+ * One row per season *within a save* — `id` is a plain surrogate key,
+ * `seasonNumber` is the 1-based season count the rest of the game reasons
+ * about ("season 3"). These used to be conflated (the row's `id` was
+ * seeded to equal the season number), which meant two saves both on
+ * "season 3" collided on one shared `season.id = 3` row. The unique index
+ * on `(gameId, seasonNumber)` is what makes that impossible now.
  */
 export const season = sqliteTable('season', {
   id: integer('id').primaryKey(),
+  gameId: integer('game_id').notNull().references(() => game.id),
+  /** 1-based season number within this save. Was previously conflated with `id` itself. */
+  seasonNumber: integer('season_number').notNull(),
   year: text('year').notNull(),
   ended: text('ended').notNull().default('false'),
-})
+}, table => ({
+  gameSeasonUnique: uniqueIndex('season_game_number_unique').on(table.gameId, table.seasonNumber),
+}))
 
 /**
  * Represents the `eventTypes` table in the database.
@@ -175,6 +197,8 @@ export const eventType = sqliteTable('event_type', {
  */
 export const game = sqliteTable('game', {
   id: integer('id').primaryKey(),
+  /** Anonymous per-browser save identity, generated once at creation and set as an httpOnly cookie. */
+  token: text('token').notNull().unique(),
   playerTeamId: integer('player_team_id')
     .notNull()
     .references(() => teams.id),
@@ -221,6 +245,8 @@ export const game = sqliteTable('game', {
  */
 export const matches = sqliteTable('matches', {
   id: integer('id').primaryKey(),
+  /** The save this fixture belongs to. Matches never pre-exist before a save. */
+  gameId: integer('game_id').notNull().references(() => game.id),
   homeTeamId: integer('home_team_id')
     .notNull()
     .references(() => teams.id),
@@ -258,6 +284,7 @@ export const matches = sqliteTable('matches', {
  */
 export const seasonSummary = sqliteTable('season_summary', {
   id: integer('id').primaryKey(),
+  gameId: integer('game_id').notNull().references(() => game.id),
   season: integer('season').notNull().references(() => season.id),
   leagueId: integer('league_id').notNull().references(() => leagues.id),
   championTeamId: integer('champion_team_id').notNull().references(() => teams.id),
@@ -334,6 +361,7 @@ export const transferOffers = sqliteTable('transfer_offers', {
  */
 export const clubNews = sqliteTable('club_news', {
   id: integer('id').primaryKey(),
+  gameId: integer('game_id').notNull().references(() => game.id),
   season: integer('season').notNull(),
   round: integer('round').notNull().default(0),
   /** `board` | `fans` | `transfer` | `contract` | `result` | `finance` */
