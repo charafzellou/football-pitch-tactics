@@ -12,7 +12,7 @@
  * club nobody ever offered a sponsorship to, and the feature looked broken when
  * it was the harness that was.
  */
-import { db } from '../db'
+import type { GameRow } from './save'
 import { settleBoardForMatchday } from './board'
 import { settleInsolvency } from './insolvency'
 import { runTransferMarket } from './market'
@@ -32,7 +32,7 @@ export interface Aftermath {
   insolvency: InsolvencyState | null
 }
 
-export async function settleAftermath(advancedTo: Date | null): Promise<Aftermath> {
+export async function settleAftermath(advancedTo: Date | null, gameState: GameRow): Promise<Aftermath> {
   const result: Aftermath = {
     othersResolved: 0,
     board: null,
@@ -48,18 +48,17 @@ export async function settleAftermath(advancedTo: Date | null): Promise<Aftermat
    * Without this the manager's result was the round's only result and the table
    * was meaningless — every other club sat on nil.
    */
-  const gameState = await db.query.game.findFirst()
   if (gameState && advancedTo)
-    result.othersResolved = (await resolveFixturesUpTo(advancedTo, gameState.playerTeamId)).resolved
+    result.othersResolved = (await resolveFixturesUpTo(advancedTo, gameState.playerTeamId, gameState.id)).resolved
 
   // The board and the support judge the manager on where the round left them,
   // which is only knowable once every other result is in.
-  result.board = await settleBoardForMatchday()
+  result.board = await settleBoardForMatchday(gameState)
 
   if (!gameState || result.board?.dismissed)
     return result
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
 
   /**
@@ -68,9 +67,9 @@ export async function settleAftermath(advancedTo: Date | null): Promise<Aftermat
    * The embargo has to be in place before offers are generated, or the manager
    * spends a matchday looking at bids the club is not allowed to accept.
    */
-  result.insolvency = await settleInsolvency({ season: gameState.season, round })
+  result.insolvency = await settleInsolvency(gameState, { season: gameState.season, round })
 
-  result.transfers = await runTransferMarket(gameState.season, round)
+  result.transfers = await runTransferMarket(gameState, gameState.season, round)
 
   // Partners come forward for slots that are unsold or in their final season,
   // priced off the confidence figure the board settlement has just written.

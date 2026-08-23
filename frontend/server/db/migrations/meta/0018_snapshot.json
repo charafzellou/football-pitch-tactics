@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3e7c443c-492f-44f6-8d96-dfa59a3073b1",
+  "id": "69f25960-65f4-4b2a-95ed-10a779ae355c",
   "prevId": "7a51e72a-c565-480e-ab0a-d737571064cc",
   "tables": {
     "club_news": {

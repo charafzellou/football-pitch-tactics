@@ -1,4 +1,4 @@
-import { sqliteTable, integer, real, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, real, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 /**
  * Represents the `countries` table in the database.
@@ -31,7 +31,7 @@ export const teams = sqliteTable('teams', {
    * `NULL` = a seed template row (the reference roster every save is cloned
    * from). Non-null = a live per-save clone, owned by exactly one save.
    */
-  gameId: integer('game_id').references(() => game.id),
+  gameId: integer('game_id').references((): AnySQLiteColumn => game.id),
   name: text('name').notNull(),
   leagueId: integer('league_id')
     .notNull()
@@ -108,7 +108,7 @@ export const players = sqliteTable('players', {
    * join on every squad read, which happens on the match-simulation hot
    * path. `NULL` for the seed template roster, same convention as `teams`.
    */
-  gameId: integer('game_id').references(() => game.id),
+  gameId: integer('game_id').references((): AnySQLiteColumn => game.id),
   name: text('name').notNull(),
   age: integer('age').notNull(),
   position: text('position').notNull(),
@@ -179,7 +179,7 @@ export const players = sqliteTable('players', {
  */
 export const season = sqliteTable('season', {
   id: integer('id').primaryKey(),
-  gameId: integer('game_id').notNull().references(() => game.id),
+  gameId: integer('game_id').notNull().references((): AnySQLiteColumn => game.id),
   /** 1-based season number within this save. Was previously conflated with `id` itself. */
   seasonNumber: integer('season_number').notNull(),
   year: text('year').notNull(),

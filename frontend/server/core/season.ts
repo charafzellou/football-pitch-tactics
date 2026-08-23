@@ -742,12 +742,12 @@ export async function rollOverSeason(gameState: GameRow): Promise<RolloverSummar
       news,
     })
 
-    await postNews(tx, news)
+    await postNews(tx, gameState.id, news)
   })
 
   // The feed is a running commentary, not an archive — `season_summary` keeps
   // the history that matters.
-  await pruneNews(newSeason)
+  await pruneNews(gameState.id, newSeason)
 
   const bySwing = (a: SquadChange, b: SquadChange) =>
     (b.skillAfter - b.skillBefore) - (a.skillAfter - a.skillBefore)

@@ -11,7 +11,7 @@
  */
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../db'
-import { financeLedger, players, sponsorshipDeals, teams } from '../db/schema'
+import { financeLedger, game, players, sponsorshipDeals, teams } from '../db/schema'
 import {
   attendanceFor,
   commercialPoolFor,
@@ -32,6 +32,7 @@ import {
 import type { LedgerType } from './economy'
 import { activeLoans, settleDebtForRound } from './loans'
 import { recentForm } from './results-server'
+import type { GameRow } from './save'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -342,23 +343,26 @@ function ordinal(position: number): string {
 
 /**
  * Builds the league context a matchday's finances need — positions and form —
- * once, rather than per fixture.
+ * once, rather than per fixture. Scoped to one save's `gameId` throughout:
+ * `leagueId` alone is shared identity across every save's clone of a league,
+ * so every query here needs the save pinned down explicitly.
  */
 export async function buildMatchdayContext(
   leagueId: number,
   season: number,
   round: number,
+  gameId: number,
 ): Promise<MatchdayContext> {
   const { computeStandings } = await import('./standings')
   const [table, save] = await Promise.all([
-    computeStandings(leagueId, season),
-    db.query.game.findFirst(),
+    computeStandings(leagueId, season, gameId),
+    db.query.game.findFirst({ where: eq(game.id, gameId) }),
   ])
 
   const positionByTeam = new Map<number, number>()
   table.forEach((row, index) => positionByTeam.set(row.teamId, index + 1))
 
-  const formByTeam = await recentForm(leagueId, season, table.map(row => row.teamId))
+  const formByTeam = await recentForm(leagueId, season, table.map(row => row.teamId), gameId)
 
   return {
     season,
@@ -376,13 +380,16 @@ export async function buildMatchdayContext(
  *
  * Contracts, transfer negotiation and the board all price the same way — what
  * a club is, and how it is doing — so they read that pair from one place.
+ * Only `teamId` is needed from the caller: the club row itself carries its
+ * own `gameId` once teams are per-save clones, so there is nothing extra to
+ * thread through every call site.
  */
 export async function leagueStandingFor(teamId: number, season: number, round = 0) {
   const club = await db.query.teams.findFirst({ where: eq(teams.id, teamId) })
-  if (!club)
+  if (!club || club.gameId === null)
     return null
 
-  const context = await buildMatchdayContext(club.leagueId, season, round)
+  const context = await buildMatchdayContext(club.leagueId, season, round, club.gameId)
 
   return {
     club,
@@ -406,12 +413,7 @@ export { recentForm }
  * season it predicted is decoration, and it can only be checked if the harness
  * and the page compute it identically.
  */
-export async function forecastForSave(gameState: {
-  playerTeamId: number
-  season: number
-  boardExpectation: number
-  fanConfidence: number
-}) {
+export async function forecastForSave(gameState: GameRow) {
   const { projectHorizon, transferBudget, wageBudget } = await import('./projection')
   const { getSeasonStatus } = await import('./season')
 
@@ -425,7 +427,7 @@ export async function forecastForSave(gameState: {
         id: true, age: true, wage: true, marketValue: true, skillLevel: true, contractUntilSeason: true,
       },
     }),
-    getSeasonStatus(),
+    getSeasonStatus(gameState),
     db.query.sponsorshipDeals.findMany({
       where: and(eq(sponsorshipDeals.teamId, club.id), eq(sponsorshipDeals.status, 'active')),
     }),

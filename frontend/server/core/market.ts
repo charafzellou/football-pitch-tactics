@@ -21,6 +21,7 @@
 import { and, eq, inArray, lt, ne } from 'drizzle-orm'
 import { db } from '../db'
 import { clubNews, game, players, teams, transferOffers } from '../db/schema'
+import type { GameRow } from './save'
 import { postLedger } from './finance'
 import { nudgeFans, transferReaction } from './board'
 import { postNews } from './news'
@@ -117,7 +118,12 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
   }
 
   // ---- Reactions, but only to the manager's own business -------------------
-  const gameRow = await tx.query.game.findFirst()
+  // Both clubs are clones of the same save (a transfer never crosses saves —
+  // the transfer market and squad searches are always scoped to one save's
+  // teams), so either team's `gameId` identifies which save's board reacts.
+  const gameRow = from.gameId !== null
+    ? await tx.query.game.findFirst({ where: eq(game.id, from.gameId) })
+    : null
   let fanConfidence: number | null = null
 
   if (gameRow && (fromTeamId === gameRow.playerTeamId || toTeamId === gameRow.playerTeamId)) {
@@ -135,7 +141,7 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
     if (delta !== 0)
       fanConfidence = await nudgeFans(tx, gameRow.id, gameRow.fanConfidence, delta)
 
-    await postNews(tx, [{
+    await postNews(tx, gameRow.id, [{
       season,
       round,
       category: 'transfer',
@@ -174,10 +180,16 @@ function offerPremium(bidderReputation: number): number {
   return 0.08 + standing * 0.30 + Math.random() * 0.12
 }
 
-/** Marks bids that have sat unanswered too long. */
-export async function expireStaleOffers(season: number, round: number): Promise<number> {
+/**
+ * Marks bids that have sat unanswered too long, for one club's own save.
+ *
+ * `playerTeamId` scopes to `toTeamId` — without it this would expire another
+ * save's pending offers the moment their round numbers happened to line up.
+ */
+export async function expireStaleOffers(playerTeamId: number, season: number, round: number): Promise<number> {
   const stale = await db.query.transferOffers.findMany({
     where: and(
+      eq(transferOffers.toTeamId, playerTeamId),
       eq(transferOffers.status, 'pending'),
       eq(transferOffers.season, season),
       lt(transferOffers.round, round - OFFER_LIFETIME_ROUNDS),
@@ -203,8 +215,7 @@ export async function expireStaleOffers(season: number, round: number): Promise<
  * matchday, and only when the squad is big enough that selling is a real
  * choice rather than a forced one.
  */
-export async function generateTransferOffers(season: number, round: number): Promise<number> {
-  const gameRow = await db.query.game.findFirst()
+export async function generateTransferOffers(gameRow: GameRow, season: number, round: number): Promise<number> {
   if (!gameRow || gameRow.dismissedAtSeason !== null)
     return 0
 
@@ -212,7 +223,11 @@ export async function generateTransferOffers(season: number, round: number): Pro
     return 0
 
   const pending = await db.query.transferOffers.findMany({
-    where: and(eq(transferOffers.status, 'pending'), eq(transferOffers.season, season)),
+    where: and(
+      eq(transferOffers.toTeamId, gameRow.playerTeamId),
+      eq(transferOffers.status, 'pending'),
+      eq(transferOffers.season, season),
+    ),
     columns: { id: true, playerId: true },
   })
 
@@ -244,7 +259,11 @@ export async function generateTransferOffers(season: number, round: number): Pro
   if (!target)
     return 0
 
-  const suitors = await db.query.teams.findMany({ where: ne(teams.id, gameRow.playerTeamId) })
+  // Suitors are this save's own other clubs — a bid from another save's
+  // Real Madrid clone would be nonsensical.
+  const suitors = await db.query.teams.findMany({
+    where: and(eq(teams.gameId, gameRow.id), ne(teams.id, gameRow.playerTeamId)),
+  })
   if (!suitors.length)
     return 0
 
@@ -285,7 +304,7 @@ export async function generateTransferOffers(season: number, round: number): Pro
     createdAt: new Date(),
   })
 
-  await postNews(db, [{
+  await postNews(db, gameRow.id, [{
     season,
     round,
     category: 'transfer',
@@ -298,9 +317,9 @@ export async function generateTransferOffers(season: number, round: number): Pro
 }
 
 /** Runs the market's own matchday: lapse old bids, then maybe make a new one. */
-export async function runTransferMarket(season: number, round: number): Promise<{ expired: number; created: number }> {
-  const expired = await expireStaleOffers(season, round)
-  const created = await generateTransferOffers(season, round)
+export async function runTransferMarket(gameRow: GameRow, season: number, round: number): Promise<{ expired: number; created: number }> {
+  const expired = await expireStaleOffers(gameRow.playerTeamId, season, round)
+  const created = await generateTransferOffers(gameRow, season, round)
 
   return { expired, created }
 }

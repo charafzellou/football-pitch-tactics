@@ -26,6 +26,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db'
 import { financeLedger, game, matches } from '../db/schema'
+import type { GameRow } from './save'
 import { RUNNING_COST_TYPES, fairTicketPrice } from './economy'
 import { leagueStandingFor } from './finance'
 import { postNews } from './news'
@@ -295,13 +296,12 @@ export async function settleMatchday(tx: Tx, input: SettleMatchdayInput): Promis
  * `getSeasonStatus()`, which lives in `season.ts` — and `season.ts` already
  * imports this module for the end-of-season verdict.
  */
-export async function settleBoardForMatchday(): Promise<BoardState | null> {
-  const gameRow = await db.query.game.findFirst()
+export async function settleBoardForMatchday(gameRow: GameRow): Promise<BoardState | null> {
   if (!gameRow || gameRow.dismissedAtSeason !== null)
     return null
 
   const fixtures = await db.query.matches.findMany({
-    where: eq(matches.season, gameRow.season),
+    where: and(eq(matches.season, gameRow.season), eq(matches.gameId, gameRow.id)),
     columns: { played: true, round: true },
   })
 
@@ -365,7 +365,7 @@ export async function settleBoardForMatchday(): Promise<BoardState | null> {
     },
   }))
 
-  await postNews(db, news)
+  await postNews(db, gameRow.id, news)
 
   return state
 }

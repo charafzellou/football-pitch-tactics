@@ -30,6 +30,7 @@
 import { and, eq, ne } from 'drizzle-orm'
 import { db } from '../db'
 import { game, players, teams } from '../db/schema'
+import type { GameRow } from './save'
 import { nudgeFans } from './board'
 import { MIN_SQUAD_SIZE_TO_SELL, settleTransfer } from './market'
 import { postNews } from './news'
@@ -87,11 +88,10 @@ function stageFor(balance: number, insolventRounds: number, previousStage: numbe
  * board acting on a verdict it has already reached — and because the balance
  * being read here has to be the one this matchday's wages actually left behind.
  */
-export async function settleInsolvency(input: {
+export async function settleInsolvency(gameRow: GameRow, input: {
   season: number
   round: number
 }): Promise<InsolvencyState | null> {
-  const gameRow = await db.query.game.findFirst()
   if (!gameRow || gameRow.dismissedAtSeason !== null)
     return null
 
@@ -154,7 +154,7 @@ export async function settleInsolvency(input: {
     })
   }
 
-  const forcedSale = stage >= 3 ? await forceSale(club.id, season, round, news) : null
+  const forcedSale = stage >= 3 ? await forceSale(gameRow.id, club.id, season, round, news) : null
 
   await db.transaction(async (tx) => {
     await tx.update(game)
@@ -166,7 +166,7 @@ export async function settleInsolvency(input: {
     if (escalated && stage >= 2)
       await nudgeFans(tx, gameRow.id, gameRow.fanConfidence, stage === 3 ? -8 : -5)
 
-    await postNews(tx, news)
+    await postNews(tx, gameRow.id, news)
   })
 
   return { stage, insolventRounds, balance, forcedSale }
@@ -181,6 +181,7 @@ export async function settleInsolvency(input: {
  * be saved by selling.
  */
 async function forceSale(
+  gameId: number,
   teamId: number,
   season: number,
   round: number,
@@ -210,8 +211,10 @@ async function forceSale(
   const fee = Math.round(target.marketValue * FORCED_SALE_DISCOUNT)
 
   // Whoever can actually pay, richest first — a distress sale goes to the club
-  // with the cash, not to the club that needs the player.
-  const buyers = await db.query.teams.findMany({ where: ne(teams.id, teamId) })
+  // with the cash, not to the club that needs the player. Scoped to this
+  // save's own clones: without `gameId` this would shop a struggling club's
+  // best player to a richer club in an entirely different save.
+  const buyers = await db.query.teams.findMany({ where: and(eq(teams.gameId, gameId), ne(teams.id, teamId)) })
   const buyer = [...buyers].sort((a, b) => b.bankBalance - a.bankBalance)[0]
   if (!buyer)
     return null
