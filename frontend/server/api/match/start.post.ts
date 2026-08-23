@@ -11,15 +11,22 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ matchId?: number | string }>(event)
   const requestedMatchId = Number(body?.matchId)
 
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
 
   // Resuming a specific fixture only makes sense if it hasn't been played
   // yet. Falling back to "the next one" prefers a match already paused
   // mid-way over starting a fresh one out of order.
   const target = requestedMatchId
-    ? await db.query.matches.findFirst({ where: and(eq(matches.id, requestedMatchId), eq(matches.played, 0)) })
-    : await db.query.matches.findFirst({ where: and(isNotNull(matches.state), eq(matches.played, 0)) })
-      ?? await db.query.matches.findFirst({ where: eq(matches.played, 0), orderBy: (matchesTable, { asc }) => [asc(matchesTable.matchDate)] })
+    ? await db.query.matches.findFirst({
+        where: and(eq(matches.id, requestedMatchId), eq(matches.gameId, gameState.id), eq(matches.played, 0)),
+      })
+    : await db.query.matches.findFirst({
+        where: and(isNotNull(matches.state), eq(matches.gameId, gameState.id), eq(matches.played, 0)),
+      })
+      ?? await db.query.matches.findFirst({
+        where: and(eq(matches.gameId, gameState.id), eq(matches.played, 0)),
+        orderBy: (matchesTable, { asc }) => [asc(matchesTable.matchDate)],
+      })
 
   if (!target) {
     return { message: 'No matches to simulate' }

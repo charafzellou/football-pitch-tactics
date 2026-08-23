@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { matches } from '../../db/schema'
 import { insertEvents, syncToMinute } from '../../core/match-session'
@@ -23,12 +23,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'matchId is required' })
   }
 
-  const match = await db.query.matches.findFirst({ where: eq(matches.id, matchId) })
+  const gameState = await requireActiveManager(event)
+
+  const match = await db.query.matches.findFirst({
+    where: and(eq(matches.id, matchId), eq(matches.gameId, gameState.id)),
+  })
   if (!match) {
     throw createError({ statusCode: 404, statusMessage: 'Match not found' })
   }
-
-  const gameState = await requireActiveManager()
 
   // Only the player's own team can be managed mid-match — the CPU side
   // manages itself inside the engine.

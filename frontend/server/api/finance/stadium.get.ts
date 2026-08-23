@@ -25,20 +25,21 @@ import type { StadiumEventKind } from '../../core/economy'
 import { leagueStandingFor } from '../../core/finance'
 import { EVENT_OFFER_LIFETIME_ROUNDS } from '../../core/stadium'
 import { getSeasonStatus } from '../../core/season'
+import { activeSave } from '../../core/save'
 
 /**
  * The ground: what it holds, what it charges, what it costs, and what else it
  * could be doing with the six days a week nobody plays football on it.
  */
-export default defineEventHandler(async () => {
-  const gameState = await db.query.game.findFirst()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState) return null
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
   if (!club) return null
 
   const [status, standing, events] = await Promise.all([
-    getSeasonStatus(),
+    getSeasonStatus(gameState),
     leagueStandingFor(club.id, gameState.season, 0),
     db.query.stadiumEvents.findMany({
       where: and(eq(stadiumEvents.teamId, club.id), eq(stadiumEvents.season, gameState.season)),

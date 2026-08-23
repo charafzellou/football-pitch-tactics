@@ -12,8 +12,8 @@ import { activeSave } from '../../core/save'
  * the fee, the matchday and a description naming the other club. Reading them
  * back is the whole feature.
  */
-export default defineEventHandler(async () => {
-  const gameState = await activeSave()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState)
     return []
 

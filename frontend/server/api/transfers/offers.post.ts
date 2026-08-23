@@ -18,11 +18,12 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'offerId and a valid action are required' })
   }
 
-  const gameState = await requireActiveManager()
-  const status = await getSeasonStatus()
+  const gameState = await requireActiveManager(event)
+  const status = await getSeasonStatus(gameState)
 
   const outcome = await resolveOffer({
     offerId,
+    toTeamId: gameState.playerTeamId,
     accept: action === 'accept',
     season: gameState.season,
     round: status?.round ?? 0,

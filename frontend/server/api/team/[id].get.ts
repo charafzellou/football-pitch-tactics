@@ -1,6 +1,7 @@
 import { db } from '../../../server/db'
 import { players, teams } from '../../../server/db/schema'
 import { TACTICS } from '../../../server/core/tactics'
+import { activeSave } from '../../../server/core/save'
 import { DEFAULT_TACTIC_NAME, parseLineup, resolveLineup } from '#shared/lineup'
 import { and, eq } from 'drizzle-orm'
 
@@ -13,8 +14,17 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const gameState = await activeSave(event)
+  if (!gameState) {
+    throw createError({ statusCode: 404, statusMessage: 'Game not found' })
+  }
+
+  // Scouting other clubs in your own save is allowed (it's how the manager
+  // reads an opponent's squad before a match); another save's club is not —
+  // team ids are a single global sequence, so an unscoped lookup here would
+  // let one save's browser read straight into another save's world.
   const team = await db.query.teams.findFirst({
-    where: eq(teams.id, teamId),
+    where: and(eq(teams.id, teamId), eq(teams.gameId, gameState.id)),
   })
 
   if (!team) {

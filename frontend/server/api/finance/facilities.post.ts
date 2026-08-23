@@ -24,7 +24,7 @@ interface Body {
  * built on the current season cannot make.
  */
 export default defineEventHandler(async (event) => {
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
   const body = await readBody<Body>(event)
 
   const facility = body?.facility
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
   if (level >= MAX_FACILITY_LEVEL)
     throw createError({ statusCode: 400, statusMessage: 'That facility is already at its best' })
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
   const standing = await leagueStandingFor(club.id, gameState.season, round)
   const pool = commercialPoolFor(
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
       description: `${name} rebuilt — ${facilityTier(next)}`,
     }])
 
-    await postNews(tx, [{
+    await postNews(tx, gameState.id, [{
       season: gameState.season,
       round,
       category: 'finance',

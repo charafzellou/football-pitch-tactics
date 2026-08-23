@@ -26,8 +26,8 @@ import { requireSave } from '../../core/save'
  * different numbers for the same club is how a game teaches people to distrust
  * its own advice.
  */
-export default defineEventHandler(async () => {
-  const gameState = await requireSave()
+export default defineEventHandler(async (event) => {
+  const gameState = await requireSave(event)
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
   if (!club)

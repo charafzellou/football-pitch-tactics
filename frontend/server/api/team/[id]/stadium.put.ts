@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Team id is required' })
   }
 
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
   if (gameState.playerTeamId !== teamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }

@@ -22,12 +22,12 @@ import {
  * This is that missing read: one call serving the dashboard's confidence meters
  * and the dismissal screen's verdict.
  */
-export default defineEventHandler(async () => {
-  const gameState = await activeSave()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState)
     return null
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const standing = await leagueStandingFor(
     gameState.playerTeamId,
     gameState.season,
@@ -62,6 +62,6 @@ export default defineEventHandler(async () => {
     sackThreshold: SACK_THRESHOLD,
     sackStreak: SACK_STREAK,
 
-    news: await recentNews(30),
+    news: await recentNews(gameState.id, 30),
   }
 })

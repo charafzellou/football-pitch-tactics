@@ -28,14 +28,14 @@ import { getSeasonStatus } from '../../core/season'
  * back this season. A page that showed only "Academy: 2" would be asking the
  * manager to spend eight figures on a noun.
  */
-export default defineEventHandler(async () => {
-  const gameState = await requireSave()
+export default defineEventHandler(async (event) => {
+  const gameState = await requireSave(event)
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
   if (!club)
     return null
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const standing = await leagueStandingFor(club.id, gameState.season, status?.round ?? 0)
   const pool = commercialPoolFor(
     club.reputation,

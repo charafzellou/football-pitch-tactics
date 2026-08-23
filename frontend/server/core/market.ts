@@ -330,6 +330,8 @@ export async function runTransferMarket(gameRow: GameRow, season: number, round:
 
 export interface OfferDecision {
   offerId: number
+  /** The offer must belong to this save's own club — never trust the id alone. */
+  toTeamId: number
   accept: boolean
   season: number
   round: number
@@ -337,7 +339,11 @@ export interface OfferDecision {
 
 export async function resolveOffer(decision: OfferDecision): Promise<TransferOutcome | null> {
   const offer = await db.query.transferOffers.findFirst({
-    where: and(eq(transferOffers.id, decision.offerId), eq(transferOffers.status, 'pending')),
+    where: and(
+      eq(transferOffers.id, decision.offerId),
+      eq(transferOffers.toTeamId, decision.toTeamId),
+      eq(transferOffers.status, 'pending'),
+    ),
   })
 
   if (!offer) {

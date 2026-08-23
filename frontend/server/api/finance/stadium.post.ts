@@ -30,14 +30,14 @@ interface Body {
  * on money — and no budget recommendation blocks anything, ever.
  */
 export default defineEventHandler(async (event) => {
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
   const body = await readBody<Body>(event)
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
   if (!club)
     throw createError({ statusCode: 404, statusMessage: 'Club not found' })
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
 
   if (body?.action === 'season-tickets') {
