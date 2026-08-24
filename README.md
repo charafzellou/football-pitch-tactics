@@ -16,7 +16,7 @@ The game is built using :
 - Nuxt UI for the component library.
 - Pinia for state management.
 - TypeScript for static type checking.
-- SQLite for the database for initial data storage.
+- SQLite for the database. One shared file holds every player's save — there's no login, just an anonymous per-browser save token — see [docs/technical/database-schema.md](docs/technical/database-schema.md#multi-tenancy).
 
 ## Gameplay Loop
 
