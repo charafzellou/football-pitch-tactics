@@ -8,13 +8,17 @@ export default defineEventHandler(async (event) => {
   const teamId = Number(event.context.params?.id)
   const body = await readBody<{ lineup?: unknown }>(event)
 
-  await requireActiveManager()
+  const gameState = await requireActiveManager(event)
 
   if (!teamId) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Team ID is required',
     })
+  }
+
+  if (gameState.playerTeamId !== teamId) {
+    throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }
 
   const requested = parseLineup(body?.lineup)

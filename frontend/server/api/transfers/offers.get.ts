@@ -13,8 +13,8 @@ import { getSeasonStatus } from '../../core/season'
  * all. Offers are now generated on matchdays by `runTransferMarket()`; this is
  * where they surface.
  */
-export default defineEventHandler(async () => {
-  const gameState = await activeSave()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState)
     return []
 
@@ -33,7 +33,7 @@ export default defineEventHandler(async () => {
   const [squad, clubs, status] = await Promise.all([
     db.query.players.findMany({ where: inArray(players.id, offers.map(offer => offer.playerId)) }),
     db.query.teams.findMany({ where: inArray(teams.id, offers.map(offer => offer.fromTeamId)) }),
-    getSeasonStatus(),
+    getSeasonStatus(gameState),
   ])
 
   const playerById = new Map(squad.map(player => [player.id, player]))

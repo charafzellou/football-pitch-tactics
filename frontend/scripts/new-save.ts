@@ -6,13 +6,13 @@
  * `POST /api/game/start` calls, so a verification run and a real game start
  * from identical state.
  */
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../server/db'
 import { teams } from '../server/db/schema'
 import { createSave } from '../server/core/save'
 
 export async function newSave(teamName?: string) {
-  const clubs = await db.query.teams.findMany()
+  const clubs = await db.query.teams.findMany({ where: isNull(teams.gameId) })
   const club = teamName
     ? clubs.find(row => row.name.toLowerCase().includes(teamName.toLowerCase()))
     : clubs[0]
@@ -20,7 +20,7 @@ export async function newSave(teamName?: string) {
   if (!club) throw new Error(`No club matching "${teamName}"`)
 
   const created = await createSave({ teamId: club.id })
-  const refreshed = await db.query.teams.findFirst({ where: eq(teams.id, club.id) })
+  const refreshed = await db.query.teams.findFirst({ where: and(eq(teams.id, created.playerTeamId), eq(teams.gameId, created.id)) })
 
   return { club: refreshed ?? club, game: created }
 }

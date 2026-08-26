@@ -2,6 +2,8 @@
 
 The database is SQLite, managed by Drizzle ORM. The schema is declared in `frontend/server/db/schema.ts`. Migrations live in `frontend/server/db/migrations/`.
 
+One SQLite file, `db.sqlite`, holds every visitor's save — there is no per-save database. See [Multi-tenancy](#multi-tenancy) below for how saves stay isolated inside it.
+
 ---
 
 ## Entity-Relationship Overview
@@ -18,11 +20,31 @@ countries ──< leagues ──< teams ──< players
                            teams ──< stadium_events      (player's club only)
                            teams ──< loans               (player's club only)
                         players ──< transfer_offers
-season ──< matches
-season ──< game
-season ──< season_summary
-club_news                          (standalone — no foreign keys)
+   game ──< teams, players, matches, season, season_summary, club_news   (game_id FK — the save each row belongs to)
 ```
+
+`game_id` is the tenancy key. `teams` and `players` carry it *nullable* — `NULL` marks the shared seed template roster, non-null marks a live per-save clone (see [Multi-tenancy](#multi-tenancy)). `matches`, `season`, `season_summary` and `club_news` carry it `NOT NULL`: those rows never exist before a save does, so there is no template state to represent.
+
+---
+
+## Multi-tenancy
+
+Any visitor can start a save; there is no login. `POST /api/game/start` creates a `game` row with a random UUID `token` and sets it as an httpOnly `fpt_save` cookie — that cookie, not an account, is what routes every later request from that browser back to the same save. `server/middleware/save-context.ts` resolves the cookie into `event.context.gameId` on every request; `server/core/save.ts`'s `activeSave()` / `requireSave()` / `requireActiveManager()` are the only sanctioned way a route reads it.
+
+**Two kinds of row share `teams` and `players`:**
+
+| `game_id` | What it is | Who writes it |
+|---|---|---|
+| `NULL` | Seed *template* data — the reference roster `bun run db:seed` produces (40 clubs, ~880 players) | `server/db/seed.ts`, on every reseed |
+| set | A live per-save *clone*, owned by exactly one save | `createSave()`, once, when that save is created |
+
+`createSave()` (`server/core/save.ts`) clones every template team and every template player into a fresh set of rows stamped with the new save's `game_id`, inside one transaction with foreign keys deferred to `COMMIT` (`PRAGMA defer_foreign_keys = ON`) — the `game` row references its `player_team_id` before that clone even exists yet, and SQLite only re-checks a deferred constraint once every row in the transaction is in place. Two saves therefore never share a team or player row, even if they both chose the same club: two independent Arsenals get two independent ids, two independent bank balances, two independent squads.
+
+**`season` is a separate table from "the season number".** Every other table that needs to say which season a row belongs to (`game.season`, `matches.season`, `season_summary.season`) stores a **plain 1-based integer** — the season number a manager would recognise ("season 3") — not a foreign key into the `season` table. That's deliberate: contract lengths, sponsorship terms and loan schedules all do arithmetic directly on that number (`contractUntilSeason: season + seasons - 1`), so it has to stay a plain per-save counter. The `season` table itself holds only that season's `year`/`ended` bookkeeping, keyed by `(game_id, season_number)` — looked up by that pair, never assumed to be `season.id`. This used to be conflated (the row's `id` *was* the season number), which meant two saves both on "season 3" collided on one shared `season.id = 3` row; the unique index on `(game_id, season_number)` is what makes that impossible now.
+
+**Reseeding never touches a live save.** `server/db/seed.ts` deletes and rebuilds only `game_id IS NULL` template teams/players, and preserves shared reference rows (`countries`, `leagues`, `positions`, and `event_type`) because live teams, matches, and historical match events reference them. An unscoped `DELETE FROM teams` at reseed time would also wipe every save's cloned teams (and cascade through their players, matches, and finances), since template and clone rows share the same table. The generated and JSON-backed template squads are checked to start with at least 2 GKs, 5 DEFs, 5 MFs, 2 FWs, and 16 players total.
+
+**Verifying isolation:** `frontend/scripts/verify-multi-save.ts` creates two saves, drives one through several matchdays and a season rollover, and asserts the other save's fixtures, squad, board/fan confidence, news feed, season number and season-summary rows never moved. Run it with `bun run scripts/verify-multi-save.ts` after touching anything that reads or writes `teams`, `players`, `matches`, `season`, `season_summary` or `club_news`.
 
 ---
 
@@ -62,6 +84,7 @@ Clubs that compete in a league. Both player-controlled and AI-controlled teams s
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
+| `game_id` | INTEGER | nullable, FK → game.id | `NULL` = seed template row. Set = a live per-save clone, owned by exactly one save. See [Multi-tenancy](#multi-tenancy) |
 | `name` | TEXT | NOT NULL | Club name |
 | `league_id` | INTEGER | NOT NULL, FK → leagues.id | Which league the team competes in |
 | `bank_balance` | INTEGER | NOT NULL, DEFAULT 1000000 | Current cash balance, in euros |
@@ -111,6 +134,7 @@ Individual footballers. Each player belongs to exactly one team.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
+| `game_id` | INTEGER | nullable, FK → game.id | Denormalized from `teams.game_id` at clone time, and never changed after — a player never moves to another save. `NULL` for the seed template roster, same convention as `teams`. Kept redundant rather than joined through `team_id` because squad reads sit on the match-simulation hot path |
 | `name` | TEXT | NOT NULL | Full name |
 | `age` | INTEGER | NOT NULL | Age in years |
 | `position` | TEXT | NOT NULL | One of: `GK`, `DEF`, `MID`, `ATT` (seed data) or `Goalkeeper`/`Defender`/`Midfielder`/`Forward`/`Attacker` (match-engine internal labels) |
@@ -149,15 +173,19 @@ value   = max(50_000, round(base × ageMultiplier(age) × random(0.88, 1.12)))
 
 ### `season`
 
-One row per available game season.
+One row per season *within a save*, holding that season's own `year`/`ended` bookkeeping.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY | Surrogate key |
+| `id` | INTEGER | PRIMARY KEY | Private surrogate key. Never stored anywhere else — see below |
+| `game_id` | INTEGER | NOT NULL, FK → game.id | The save this season belongs to |
+| `season_number` | INTEGER | NOT NULL | 1-based season count within this save — the number a manager would recognise ("season 3") |
 | `year` | TEXT | NOT NULL | Calendar year as string (e.g. "2024") |
 | `ended` | TEXT | NOT NULL, DEFAULT 'false' | Whether the season is finished. Stored as string `'true'`/`'false'` |
 
-**Seed data:** Years 2024–2030 (7 seasons), all `ended = 'false'`.
+**Unique index** on `(game_id, season_number)` — the only way this table is looked up, never by a bare number assumed to be `id`.
+
+**`id` is a private surrogate, not what other tables reference.** `game.season`, `matches.season` and `season_summary.season` all store the plain `season_number` directly, not this row's `id` — see [Multi-tenancy § season number vs season.id](#multi-tenancy) for why. Created once per season by `createSave()` (season 1) and again at each `rollOverSeason()` (the next number), scoped to the save doing the rolling over.
 
 ---
 
@@ -180,13 +208,14 @@ Ids are not semantically meaningful — `resolveEventTypeIds()` (`server/core/ma
 
 ### `game`
 
-Represents the active save state. Only one row is kept at a time — `POST /api/game/start` deletes all existing rows before inserting a new one.
+One row per save. There is no login: `POST /api/game/start` creates a row with a random UUID `token`, sets it as an httpOnly `fpt_save` cookie, and every later request from that browser resolves back to this row via `server/middleware/save-context.ts`. See [Multi-tenancy](#multi-tenancy).
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
-| `player_team_id` | INTEGER | NOT NULL, FK → teams.id | The club the human player manages |
-| `season` | INTEGER | NOT NULL, FK → season.id | Current season. Starts at `1` and is incremented by every rollover |
+| `token` | TEXT | NOT NULL, UNIQUE | Anonymous save identity — a random UUID, generated once at creation and never changed. What the `fpt_save` cookie carries |
+| `player_team_id` | INTEGER | NOT NULL, FK → teams.id | The club the human player manages — always a per-save clone (`teams.game_id = this row's id`), never a template row |
+| `season` | INTEGER | NOT NULL | Current season **number** (1, 2, 3, ...), not a foreign key to `season.id` — see [Multi-tenancy](#multi-tenancy). Starts at `1` and is incremented by every rollover |
 | `current_date` | INTEGER (timestamp) | NOT NULL | Virtual in-game calendar date |
 | `sacking_enabled` | INTEGER | NOT NULL, default `0` | **Write-once.** Chosen on the new-game screen; no endpoint can change it afterwards. Governs only whether the confidence streak ends the save |
 | `board_confidence` | INTEGER | NOT NULL, default `65` | 0–100. How secure the manager's position is |
@@ -214,12 +243,13 @@ One row per fixture in the season schedule.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
+| `game_id` | INTEGER | NOT NULL, FK → game.id | The save this fixture belongs to. Matches never pre-exist before a save — no template rows here, unlike `teams`/`players` |
 | `home_team_id` | INTEGER | NOT NULL, FK → teams.id | Home club |
 | `away_team_id` | INTEGER | NOT NULL, FK → teams.id | Away club |
 | `home_score` | INTEGER | nullable | Goals scored by home team; `NULL` = not yet played |
 | `away_score` | INTEGER | nullable | Goals scored by away team; `NULL` = not yet played |
 | `played` | INTEGER | NOT NULL, DEFAULT 0 | `1` once the match has been simulated |
-| `season` | INTEGER | NOT NULL, FK → season.id | Which season this fixture belongs to |
+| `season` | INTEGER | NOT NULL | Season **number** within this save, not a foreign key to `season.id` — see [Multi-tenancy](#multi-tenancy) |
 | `round` | INTEGER | NOT NULL, default `0` | Matchday number within the season, 1-based. Every fixture in a round shares a `match_date` |
 | `match_date` | INTEGER (timestamp) | NOT NULL | Scheduled kick-off datetime. Rounds are 7 days apart from a fixed season start |
 | `state` | TEXT | nullable | Live `MatchState` JSON (see `shared/match-state.ts`) while the match is paused mid-way. `NULL` when not started or already finished — same convention as `teams.lineup`'s "nothing saved" |
@@ -235,7 +265,8 @@ One row per league per completed season, written by the rollover.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
-| `season` | INTEGER | NOT NULL, FK → season.id | The season that finished |
+| `game_id` | INTEGER | NOT NULL, FK → game.id | The save this summary belongs to |
+| `season` | INTEGER | NOT NULL | Season **number** that finished, not a foreign key to `season.id` — see [Multi-tenancy](#multi-tenancy) |
 | `league_id` | INTEGER | NOT NULL, FK → leagues.id | Which league |
 | `champion_team_id` | INTEGER | NOT NULL, FK → teams.id | Winner |
 | `champion_points` | INTEGER | NOT NULL | Winning points total |
@@ -246,7 +277,7 @@ One row per league per completed season, written by the rollover.
 
 Standings are otherwise computed on the fly from `matches`, which is fine while a season is live but loses everything the moment the next season's fixtures are inserted. This is what survives a rollover.
 
-**Delete order:** this table references `season`, `leagues` and `teams`, so `seed.ts` must clear it before any of them.
+**Delete order:** this table references `game`, `leagues` and `teams`, so `seed.ts` must clear it before any of them (though in practice `seed.ts` never touches this table at all — it only reseeds `game_id IS NULL` template rows, and `season_summary` has no template rows to reseed).
 
 ---
 
@@ -287,6 +318,8 @@ Every credit and debit against a club's balance.
 
 The balance could have been a single running number, but then it could only be asserted, never explained. With a ledger the finance page can show *why* money moved.
 
+**No `game_id` column, and none needed.** `team_id` already pins every row to exactly one save, because `teams.id` itself is per-save once a club is cloned — two saves' Arsenals are two different `teams.id` values. The same reasoning applies to `transfer_offers`, `sponsorship_deals`, `stadium_events` and `loans` below: all four key off `team_id`/`player_id`, which are already save-scoped surrogate ids, so none of them needed a `game_id` column of their own.
+
 Every type is written by something. **The column is free text, so adding a stream needs no migration** — only an entry in `LEDGER_TYPES`, and one in `STREAM_META` (`shared/finance.ts`) to give it a label and a grouping.
 
 | Type | Sign | Written by |
@@ -317,14 +350,15 @@ Transfers previously bypassed the ledger entirely, leaving those two types decla
 
 ### `club_news`
 
-The club's news feed — board and fan reactions, transfers, contracts. Standalone: no foreign keys.
+The club's news feed — board and fan reactions, transfers, contracts.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY | Surrogate key |
-| `season` | INTEGER | NOT NULL | Season the item belongs to |
+| `game_id` | INTEGER | NOT NULL, FK → game.id | The save this item belongs to |
+| `season` | INTEGER | NOT NULL | Season **number** the item belongs to, not a foreign key to `season.id` |
 | `round` | INTEGER | NOT NULL, default `0` | Matchday, `0` for season-boundary items |
-| `category` | TEXT | NOT NULL | `board` \| `fans` \| `transfer` \| `contract` \| `result` |
+| `category` | TEXT | NOT NULL | `board` \| `fans` \| `transfer` \| `contract` \| `result` \| `finance` |
 | `tone` | TEXT | NOT NULL, default `'neutral'` | `positive` \| `negative` \| `neutral` |
 | `headline` | TEXT | NOT NULL | One-line summary |
 | `body` | TEXT | nullable | Detail |
@@ -332,7 +366,7 @@ The club's news feed — board and fan reactions, transfers, contracts. Standalo
 
 Board confidence is a number, and a number alone never explains itself. These rows are what turn "confidence fell 6" into "the board expected top four and you are 11th".
 
-Written by `postNews()`, read by `GET /api/board`, and pruned at each rollover — `pruneNews(season)` drops everything from earlier seasons, since the feed is running commentary and `season_summary` is what preserves history.
+Written by `postNews(client, gameId, items)`, read by `GET /api/board`, and pruned at each rollover — `pruneNews(gameId, season)` drops everything from earlier seasons *in that save*, since the feed is running commentary and `season_summary` is what preserves history. Every call site threads `gameId` through explicitly — this table had no owner column at all before the multi-tenant migration, so every save's browser saw every other save's board reactions mixed together in one global list.
 
 ---
 
@@ -455,6 +489,8 @@ Drizzle generates incremental SQL migration files in `server/db/migrations/`. `m
 | 12 | `0012_curved_blizzard` |
 | 13 | `0013_amused_vermin` |
 | 14 | `0014_wandering_debt` |
+| 15 | `0015_sleepy_johnny_blaze` |
+| 16 | `0018_thick_captain_britain` |
 
 **On disk but not in the journal** (superseded by the generated migrations above, kept for history): `0004_add_played_to_matches.sql`, `0005_add_lineup_to_teams.sql`, `0006_rework_event_types.sql`, `0010_contracts_board_market.sql`.
 
@@ -477,5 +513,7 @@ Summary of what the later ones carry:
 | `0012_curved_blizzard.sql` | Creates `sponsorship_deals` |
 | `0013_amused_vermin.sql` | Creates `stadium_events` |
 | `0014_wandering_debt.sql` | Creates `loans` |
+| `0015_sleepy_johnny_blaze.sql` | Identical `CREATE TABLE loans` to `0014` — a duplicate from a branch merge, harmless because `CREATE TABLE` on an existing table is a no-op under `drizzle-kit push`'s diffing |
+| `0018_thick_captain_britain.sql` | **Multi-tenancy**: adds nullable `game_id` to `teams`/`players` (template vs. clone), `NOT NULL game_id` to `club_news`/`matches`/`season_summary`; restructures `season` — `id` becomes a private surrogate, adds `season_number` and `game_id`, unique index on `(game_id, season_number)`; adds `game.token` (unique). Drops the old `matches.season → season.id` and `game.season → season.id` / `season_summary.season → season.id` foreign keys — `season` is a plain per-save integer everywhere except this table itself. See [Multi-tenancy](#multi-tenancy) |
 
 **Warning:** several files share a version prefix (`0004_`, `0005_`, `0008_`, `0010_`), which indicates migration branch conflicts. `meta/_journal.json` — not the filenames — determines what is applied; see the applied list above. Run `bun run db:push` to bring a database up to date.

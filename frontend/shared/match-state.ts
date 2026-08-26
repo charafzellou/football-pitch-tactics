@@ -10,6 +10,7 @@
  * the minute a pause happened. One implementation, so none of the three can
  * ever disagree about who is on the pitch.
  */
+import { normalizePosition } from './lineup'
 
 export const MATCH_MINUTES = 90
 export const HALF_TIME_MINUTE = 45
@@ -280,11 +281,23 @@ export interface SubstitutionRequest {
   playerInId: number
 }
 
+/** Player positions used to enforce position-specific substitution rules. */
+export type PlayerPositionMap = ReadonlyMap<number, string>
+
 /**
  * Validates a proposed swap against the current state of the side making it.
  * Returns a human-readable reason it's blocked, or `null` if it's legal.
+ *
+ * `playerPositions` is supplied by the live match panel and by the API from
+ * the squad rows. It is optional for backwards compatibility with persisted
+ * match states and older callers; the API always supplies it before accepting
+ * a real substitution.
  */
-export function substitutionError(side: MatchSideState, request: SubstitutionRequest): string | null {
+export function substitutionError(
+  side: MatchSideState,
+  request: SubstitutionRequest,
+  playerPositions?: PlayerPositionMap,
+): string | null {
   if (side.subsUsed >= MAX_SUBSTITUTIONS)
     return 'No substitutions remaining'
 
@@ -312,6 +325,17 @@ export function substitutionError(side: MatchSideState, request: SubstitutionReq
   if (side.injured.includes(request.playerInId))
     return 'That player is injured'
 
+  if (playerPositions) {
+    const outgoingSlot = normalizePosition(playerPositions.get(request.playerOutId))
+    const incomingSlot = normalizePosition(playerPositions.get(request.playerInId))
+
+    if (!outgoingSlot || !incomingSlot)
+      return 'Player position is unavailable'
+
+    if ((outgoingSlot === 'GK') !== (incomingSlot === 'GK'))
+      return 'A goalkeeper can only be replaced by a goalkeeper'
+  }
+
   return null
 }
 
@@ -327,12 +351,13 @@ export function applyMidMatchChanges(
   teamId: number,
   substitutions: SubstitutionRequest[],
   tacticName?: string,
+  playerPositions?: PlayerPositionMap,
 ): MatchState {
   const key = sideFor(state, teamId)
   let side = state[key]
 
   for (const request of substitutions) {
-    const error = substitutionError(side, request)
+    const error = substitutionError(side, request, playerPositions)
     if (error)
       throw new Error(error)
 

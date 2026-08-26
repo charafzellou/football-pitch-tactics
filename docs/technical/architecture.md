@@ -2,16 +2,27 @@
 
 ## System Overview
 
-Football Pitch Tactics is a single-player, browser-based football management game. It runs entirely on one machine: the Nuxt server serves the Vue SPA and all API logic from one process, with a local SQLite database file. Rendering is client-side only — `ssr: false`, see [frontend.md](frontend.md#rendering-mode).
+Football Pitch Tactics is a browser-based football management game with no login. Any visitor can start a save; who they are is a random UUID in an httpOnly cookie, not an account. It runs entirely on one machine: the Nuxt server serves the Vue SPA and all API logic from one process, with a local SQLite database file shared by every save. Rendering is client-side only — `ssr: false`, see [frontend.md](frontend.md#rendering-mode).
 
 ```
-Browser ──HTTP──▶  Nuxt Dev Server (port 8080)
+Browser ──HTTP + fpt_save cookie──▶  Nuxt Dev Server (port 8080)
                    ├── /app/**          ← Vue SPA (pages, components, stores)
                    ├── /api/**          ← Nitro server routes (REST)
-                   └── /server/db/**    ← Drizzle ORM ──▶ db.sqlite
+                   │     └── middleware/save-context.ts  ← resolves the cookie's save
+                   └── /server/db/**    ← Drizzle ORM ──▶ db.sqlite (every save's data)
 ```
 
 There is no separate backend process. Nuxt's Nitro engine serves both the frontend assets and the API routes from the same Node/Bun process.
+
+### Multi-tenancy
+
+Every visitor's save lives in the same SQLite file, distinguished by `game_id`. There is no per-save database, no separate schema, and no login — the game's whole identity model is an anonymous UUID token, generated once by `createSave()` and set as an httpOnly `fpt_save` cookie. `server/middleware/save-context.ts` runs on every request, reads that cookie, and resolves it to a `game` row it stashes in `event.context.gameId`; route handlers then call `activeSave(event)` / `requireSave(event)` / `requireActiveManager(event)` (`server/core/save.ts`) to get that row rather than ever querying `game` unscoped.
+
+`teams` and `players` hold two different kinds of row in the same table, distinguished by `game_id`:
+- **`game_id IS NULL`** — the seed *template* roster `bun run db:seed` produces: 40 clubs, ~880 players, shared read-only reference data.
+- **`game_id` set** — a live per-save *clone*, owned by exactly one save, mutated freely by that save's play.
+
+`createSave()` clones every template team and player into a fresh save-owned set of rows the moment a new game starts, rather than resetting shared rows in place — that in-place reset is what the single-save version of this game used to do, which is why starting a second save used to silently overwrite the first one. See [database-schema.md](database-schema.md#multi-tenancy) for exactly which tables carry `game_id` and which stay global template data, and `frontend/scripts/verify-multi-save.ts` for the automated check that two saves never bleed into each other.
 
 ---
 
@@ -69,6 +80,7 @@ football-pitch-tactics/
     └── server/                  # Nitro server layer
         ├── api/                 # HTTP route handlers
         ├── core/                # Game logic — see below
+        ├── middleware/          # save-context.ts — resolves fpt_save cookie → event.context.gameId
         └── db/                  # Database: schema, migrations, seed, client, league JSON
 ```
 
@@ -96,7 +108,7 @@ football-pitch-tactics/
 | `market.ts` | Transfer settlement (money, ledger, fan reaction, news) and AI bidding |
 | `board.ts` | Board and fan confidence, expectations, dismissal |
 | `news.ts` | The club news feed |
-| `save.ts` | Save lifecycle guards — `requireActiveManager()` |
+| `save.ts` | Save lifecycle — `createSave()` clones the template roster per save; `activeSave()`/`requireSave()`/`requireActiveManager()` resolve the caller's save from `event.context.gameId` |
 | `results-server.ts` | Server-side W/D/L helpers |
 
 **`shared/`** exists so the exact same rules run on both sides of the wire: the match engine (server) uses `shared/lineup.ts` to pick a CPU team's best XI, and the Dashboard lineup builder (client) imports the same module for position normalisation and slot counts; `shared/match-state.ts` does the same for live match state, so the engine, the API's rewind and the Matchday UI can never disagree about who is on the pitch. `shared/finance.ts` does it for money: the server totals ledger streams and the finance pages label them, and two copies of that map is exactly how "Commercial" comes to mean one thing on the overview and another on the projection. Nuxt exposes this directory automatically via the `#shared` import alias. See [match-engine.md](match-engine.md), [tactics.md](../functional/tactics.md) and [economy.md](economy.md).
@@ -108,9 +120,10 @@ football-pitch-tactics/
 1. **Browser navigates** to a URL (e.g. `/game`).
 2. **Nuxt router** matches the file in `app/pages/`.
 3. The **global middleware** `require-active-game.global.ts` runs before the component mounts. No active save → `/new-game`; a save whose manager has been dismissed → `/game/dismissed`.
-4. The **page component** mounts and calls `useFetch()`/`useAsyncData()` hooks which send `GET` requests to Nitro API routes under `/api/`.
-5. **Nitro handler** imports `db` from `server/db/index.ts` (a Drizzle client pointing at `db.sqlite`), runs the query, and returns JSON. Routes that mutate the world first call `requireActiveManager()`, which `403`s on a dismissed save.
-6. The page renders with the data.
+4. The **page component** mounts and calls `useFetch()`/`useAsyncData()` hooks which send `GET` requests to Nitro API routes under `/api/`, carrying the `fpt_save` cookie automatically.
+5. On the server, `server/middleware/save-context.ts` runs first on every request: it reads the `fpt_save` cookie, looks up the matching `game` row, and sets `event.context.gameId`. No cookie or an unrecognised token leaves `event.context.gameId` unset — the route itself decides whether that is a 404 (`requireSave`) or a legitimate "nothing yet" (`activeSave` returning `null`, e.g. before a save exists).
+6. **Nitro handler** imports `db` from `server/db/index.ts` (a Drizzle client pointing at `db.sqlite`) and calls `activeSave(event)` / `requireSave(event)` / `requireActiveManager(event)` (`server/core/save.ts`) to resolve *this request's* save from `event.context.gameId`, never `db.query.game.findFirst()` with no filter — that would silently operate on whichever save happens to be first in the table, which is exactly the bug the multi-tenant migration fixed. Routes that mutate the world call `requireActiveManager()`, which `403`s on a dismissed save; several also re-check that the resource they're touching (`team.id`, `match.id`) actually belongs to `gameState.id` before returning or mutating it.
+7. The page renders with the data.
 
 ---
 

@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { game, matches, teams } from '../../db/schema'
 import { syncToMinute } from '../../core/match-session'
 import { settleMatchFitness } from '../../core/matchday-ai'
 import { buildMatchdayContext, settleMatchFinances } from '../../core/finance'
 import { settleAftermath } from '../../core/matchday'
+import { requireSave } from '../../core/save'
 import type { MatchState } from '#shared/match-state'
 import { MATCH_MINUTES } from '#shared/match-state'
 
@@ -32,7 +33,15 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'matchId is required' })
   }
 
-  const match = await db.query.matches.findFirst({ where: eq(matches.id, matchId) })
+  // Deliberately `requireSave`, not `requireActiveManager`: this route only
+  // commits a match already in flight, and dismissal is decided by
+  // `settleBoardForMatchday()` at the end of this very call — guarding entry
+  // would 403 a result the server had in fact already saved.
+  const gameState = await requireSave(event)
+
+  const match = await db.query.matches.findFirst({
+    where: and(eq(matches.id, matchId), eq(matches.gameId, gameState.id)),
+  })
   if (!match) {
     throw createError({ statusCode: 404, statusMessage: 'Match not found' })
   }
@@ -56,10 +65,10 @@ export default defineEventHandler(async (event) => {
   // to change.
   const homeClub = await db.query.teams.findFirst({ where: eq(teams.id, match.homeTeamId) })
   const financeContext = homeClub
-    ? await buildMatchdayContext(homeClub.leagueId, match.season, match.round)
+    ? await buildMatchdayContext(homeClub.leagueId, match.season, match.round, gameState.id)
     : null
 
-  const advancedTo = await finalizeMatch(matchId, match, state, financeContext)
+  const advancedTo = await finalizeMatch(matchId, gameState.id, match, state, financeContext)
 
   /**
    * The rest of the matchday.
@@ -70,7 +79,7 @@ export default defineEventHandler(async (event) => {
    * before it is played out headlessly, so the standings the manager returns
    * to are real.
    */
-  const { othersResolved, board, transfers, commercial } = await settleAftermath(advancedTo)
+  const { othersResolved, board, transfers, commercial } = await settleAftermath(advancedTo, gameState)
 
   return {
     finished: true,
@@ -98,6 +107,7 @@ export default defineEventHandler(async (event) => {
  */
 async function finalizeMatch(
   matchId: number,
+  gameId: number,
   match: { matchDate: unknown; homeTeamId: number; awayTeamId: number },
   state: MatchState,
   financeContext: Awaited<ReturnType<typeof buildMatchdayContext>> | null,
@@ -119,7 +129,7 @@ async function finalizeMatch(
     if (financeContext)
       await settleMatchFinances(tx, match.homeTeamId, match.awayTeamId, financeContext)
 
-    const gameState = await tx.query.game.findFirst()
+    const gameState = await tx.query.game.findFirst({ where: eq(game.id, gameId) })
     if (gameState) {
       let matchDateObj = new Date(match.matchDate as any)
       if (Number.isNaN(matchDateObj.getTime())) {

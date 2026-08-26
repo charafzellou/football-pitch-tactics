@@ -15,19 +15,20 @@ import type { CommercialSlot } from '../../core/economy'
 import { leagueStandingFor } from '../../core/finance'
 import { OFFER_LIFETIME_ROUNDS, poolFor, valuationsFor } from '../../core/sponsors'
 import { getSeasonStatus } from '../../core/season'
+import { activeSave } from '../../core/save'
 
 /**
  * The commercial department: who pays the club, what the open slots are worth,
  * and what the hoardings could be earning.
  */
-export default defineEventHandler(async () => {
-  const gameState = await db.query.game.findFirst()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState) return null
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
   if (!club) return null
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
 
   const [rows, standing, squad] = await Promise.all([

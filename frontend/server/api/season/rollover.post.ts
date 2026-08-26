@@ -10,12 +10,12 @@ import { requireActiveManager } from '../../core/save'
  * come round on the calendar, and the season cannot be closed with results
  * missing.
  */
-export default defineEventHandler(async () => {
-  const gameState = await requireActiveManager()
+export default defineEventHandler(async (event) => {
+  const gameState = await requireActiveManager(event)
 
   // Far-future date: resolve everything left, regardless of when it was
   // scheduled.
-  await resolveFixturesUpTo(new Date(8640000000000), gameState.playerTeamId)
+  await resolveFixturesUpTo(new Date(8640000000000), gameState.playerTeamId, gameState.id)
 
-  return rollOverSeason()
+  return rollOverSeason(gameState)
 })

@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'A wage cannot be negative' })
   }
 
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
   if (gameState.playerTeamId !== teamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }
@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
   if (wage > player.wage)
     assertNotEmbargoed(gameState.insolvencyStage)
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const standing = await leagueStandingFor(teamId, gameState.season, status?.round ?? 0)
   if (!standing) {
     throw createError({ statusCode: 404, statusMessage: 'Club not found' })
@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
       .set({ wage, contractUntilSeason })
       .where(eq(players.id, player.id))
 
-    await postNews(tx, [{
+    await postNews(tx, gameState.id, [{
       season: gameState.season,
       round: status?.round ?? 0,
       category: 'contract',

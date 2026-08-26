@@ -1,6 +1,7 @@
 import { db } from '../../../server/db'
 import { matches } from '../../../server/db/schema'
-import { eq } from 'drizzle-orm'
+import { activeSave } from '../../../server/core/save'
+import { and, eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const matchId = Number(event.context.params?.id)
@@ -11,8 +12,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const gameState = await activeSave(event)
+  if (!gameState) {
+    throw createError({ statusCode: 404, statusMessage: 'Game not found' })
+  }
+
   const match = await db.query.matches.findFirst({
-    where: eq(matches.id, matchId),
+    where: and(eq(matches.id, matchId), eq(matches.gameId, gameState.id)),
     with: {
       matchEvents: true,
     },

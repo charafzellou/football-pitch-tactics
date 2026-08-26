@@ -1,10 +1,16 @@
-import { desc } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { seasonSummary } from '../../db/schema'
+import { activeSave } from '../../core/save'
 
-/** Past champions and the player's finishing positions. */
-export default defineEventHandler(async () => {
+/** Past champions and the player's finishing positions, for this save. */
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
+  if (!gameState)
+    return []
+
   const rows = await db.query.seasonSummary.findMany({
+    where: eq(seasonSummary.gameId, gameState.id),
     orderBy: [desc(seasonSummary.season)],
   })
 
@@ -13,7 +19,7 @@ export default defineEventHandler(async () => {
 
   const [leagues, teams] = await Promise.all([
     db.query.leagues.findMany(),
-    db.query.teams.findMany(),
+    db.query.teams.findMany({ where: (teamsTable, { eq: is }) => is(teamsTable.gameId, gameState.id) }),
   ])
 
   const leagueName = new Map(leagues.map(league => [league.id, league.name]))

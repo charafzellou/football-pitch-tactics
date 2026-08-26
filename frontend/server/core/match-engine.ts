@@ -510,9 +510,9 @@ function pickAutoSub(side: MatchSideState, squad: Map<number, Player>): { player
 
 /**
  * Replaces an injured CPU player. Unlike `pickAutoSub` there's no upgrade
- * margin to clear — the side is already a man down, so any available body
- * beats playing short. Prefers the same position, then falls back to the
- * best outfielder left on the bench.
+ * margin to clear — the side is already a man down, so any available legal
+ * body beats playing short. Goalkeepers can only be replaced by another
+ * goalkeeper; an outfield player is never a legal fallback for that slot.
  */
 function pickInjuryReplacement(
   side: MatchSideState,
@@ -527,8 +527,14 @@ function pickInjuryReplacement(
     return null
 
   const injuredSlot = normalizePosition(squad.get(injuredId)?.position ?? '')
-  const sameSlot = bench.filter(p => normalizePosition(p.position) === injuredSlot)
-  const pool = sameSlot.length ? sameSlot : bench
+  const eligible = injuredSlot === 'GK'
+    ? bench.filter(p => normalizePosition(p.position) === 'GK')
+    : bench.filter(p => normalizePosition(p.position) !== 'GK')
+  if (!eligible.length)
+    return null
+
+  const sameSlot = eligible.filter(p => normalizePosition(p.position) === injuredSlot)
+  const pool = sameSlot.length ? sameSlot : eligible
 
   const best = pool.reduce((top, p) =>
     effectiveSkill(p.skillLevel, side.stamina[p.id] ?? 100) > effectiveSkill(top.skillLevel, side.stamina[top.id] ?? 100) ? p : top)

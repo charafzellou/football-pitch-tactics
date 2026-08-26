@@ -56,19 +56,25 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'playerId is required' })
   }
 
-  const gameState = await requireActiveManager()
+  const gameState = await requireActiveManager(event)
   if (!gameState.playerTeamId) {
     throw createError({ statusCode: 400, statusMessage: 'No active player team found' })
   }
 
-  const player = await db.query.players.findFirst({ where: eq(players.id, playerId) })
+  const player = await db.query.players.findFirst({
+    where: and(eq(players.id, playerId), eq(players.gameId, gameState.id)),
+  })
   if (!player) throw createError({ statusCode: 404, statusMessage: 'Player not found' })
 
   if (player.retired) {
     throw createError({ statusCode: 400, statusMessage: 'That player has retired' })
   }
 
-  const status = await getSeasonStatus()
+  if (action === 'sell' && (player.teamId !== gameState.playerTeamId || player.freeAgent)) {
+    throw createError({ statusCode: 400, statusMessage: 'You can only sell players in your active squad' })
+  }
+
+  const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
   const season = gameState.season
 
@@ -212,8 +218,11 @@ export default defineEventHandler(async (event) => {
   excludedTeamIds.add(gameState.playerTeamId)
 
   // Find buyer teams that are not controlled by the player and can afford at least the current value.
+  // Scoped to this save's own clones — without `gameId` this would consider
+  // every other save's teams as potential buyers.
   const possibleBuyers = await db.query.teams.findMany({
     where: and(
+      eq(teams.gameId, gameState.id),
       ...Array.from(excludedTeamIds).map(teamId => ne(teams.id, teamId)),
       gt(teams.bankBalance, player.marketValue),
     ),
@@ -284,6 +293,7 @@ export default defineEventHandler(async (event) => {
     round,
     // Sold at a premium, so he is worth more to the next club that asks.
     newMarketValue: buyerTeam.transferValue,
+    enforceSquadMinimums: true,
   }))
 
   return {

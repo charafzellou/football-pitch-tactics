@@ -113,9 +113,9 @@ export async function generateEventOffers(context: StadiumOfferContext): Promise
 }
 
 /** Promoters do not wait for ever, and a week that has passed cannot be sold. */
-export async function expireStaleEventOffers(season: number, round: number): Promise<number> {
+export async function expireStaleEventOffers(teamId: number, season: number, round: number): Promise<number> {
   const offers = await db.query.stadiumEvents.findMany({
-    where: and(eq(stadiumEvents.season, season), eq(stadiumEvents.status, 'offered')),
+    where: and(eq(stadiumEvents.teamId, teamId), eq(stadiumEvents.season, season), eq(stadiumEvents.status, 'offered')),
   })
 
   const gone = offers.filter(row => row.round <= round)
@@ -186,7 +186,7 @@ export async function settleStadiumForRound(input: {
       if (event.fanReaction !== 0)
         await nudgeFans(tx, input.gameId, input.fanConfidence, event.fanReaction)
 
-      await postNews(tx, [{
+      await postNews(tx, input.gameId, [{
         season: input.season,
         round: input.round,
         category: 'finance',
@@ -223,7 +223,7 @@ export async function runStadiumDiary(input: {
   fanConfidence: number
 }): Promise<{ held: number; expired: number; offered: number }> {
   const settlement = await settleStadiumForRound(input)
-  const expired = await expireStaleEventOffers(input.season, input.round)
+  const expired = await expireStaleEventOffers(input.teamId, input.season, input.round)
   const offered = await generateEventOffers(input)
 
   return { held: settlement.held.length, expired, offered }

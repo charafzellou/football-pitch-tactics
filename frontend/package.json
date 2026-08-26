@@ -11,6 +11,9 @@
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "db:setup": "bun run db:migrate && bun run db:push && bun run db:seed",
     "db:migrate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -20,7 +23,7 @@
   "devDependencies": {
     "@faker-js/faker": "^9.9.0",
     "@iconify-json/heroicons": "^1.2.3",
-    "@iconify-json/lucide": "^1.2.123",
+    "@iconify-json/lucide": "^1.2.126",
     "@iconify-json/simple-icons": "^1.2.93",
     "@libsql/client": "^0.17.4",
     "@nuxt/eslint": "^1.17.0",
@@ -28,6 +31,7 @@
     "@nuxt/ui": "^3.3.7",
     "@pinia/nuxt": "^0.11.3",
     "@types/canvas-confetti": "^1.9.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.5",
@@ -36,14 +40,15 @@
     "pinia": "^3.0.4",
     "prettier": "^3.9.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.67.0",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11",
     "vue-router": "^4.6.4",
-    "vue-tsc": "^3.3.10"
+    "vue-tsc": "^3.3.11"
   },
   "dependencies": {
     "@vueuse/core": "^14.4.0",
     "@vueuse/nuxt": "^14.4.0",
     "canvas-confetti": "^1.9.4",
-    "colord": "^2.9.3"
+    "colord": "^2.10.0"
   }
 }

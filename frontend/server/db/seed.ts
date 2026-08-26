@@ -3,8 +3,7 @@ import * as schema from './schema'
 import { faker } from '@faker-js/faker'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { eq } from 'drizzle-orm'
-import { buildSeasonFixtures } from '../core/calendar'
+import { and, eq, isNull } from 'drizzle-orm'
 import { SQUAD_SHAPE, initialPotential, marketValueFor, positionsToFill } from '../core/progression'
 import type { PositionCode } from '../core/progression'
 import {
@@ -40,35 +39,31 @@ const laLigaData = JSON.parse(
 ) as LeagueSeedData
 
 // Clear existing data in correct order (to avoid foreign key constraint issues).
-// `season_summary` references season, leagues and teams, so it has to go before
-// any of them.
-await db.delete(schema.matchEvents)
-await db.delete(schema.matches)
-await db.delete(schema.seasonSummary)
-await db.delete(schema.transferOffers)
-await db.delete(schema.clubNews)
-await db.delete(schema.financeLedger)
-await db.delete(schema.loans)
-await db.delete(schema.sponsorshipDeals)
-await db.delete(schema.stadiumEvents)
-await db.delete(schema.eventType)
-await db.delete(schema.game)
-await db.delete(schema.season)
-await db.delete(schema.players)
-await db.delete(schema.positions)
-await db.delete(schema.teams)
-await db.delete(schema.leagues)
-await db.delete(schema.countries)
+//
+// `teams` and `players` now hold BOTH the seed template roster (`game_id IS
+// NULL`) AND live per-save clones (`game_id` set) — only the template rows
+// belong to this script. Deleting unconditionally would destroy every
+// player's save the moment the template roster is reseeded, which defeats
+// the entire point of separating templates from saves. `season`, `matches`
+// and everything else keyed to a save are never touched here at all — they
+// are created per-save by `createSave()`.
+// Event types are global and historical match events reference them. Preserve
+// existing rows during a template reseed and add only newly supported names.
+await db.delete(schema.players).where(isNull(schema.players.gameId))
+await db.delete(schema.teams).where(isNull(schema.teams.gameId))
 
 // Seed Countries
 const countryData = [{ name: 'England' }, { name: 'Spain' }]
-const seededCountries = await db
-  .insert(schema.countries)
-  .values(countryData)
-  .returning()
+const seededCountries = []
+for (const country of countryData) {
+  const existing = await db.query.countries.findFirst({ where: eq(schema.countries.name, country.name) })
+  const row = existing ?? (await db.insert(schema.countries).values(country).returning())[0]
+  if (row)
+    seededCountries.push(row)
+}
 
-const england = seededCountries[0]
-const spain = seededCountries[1]
+const england = seededCountries.find(country => country.name === 'England')
+const spain = seededCountries.find(country => country.name === 'Spain')
 
 if (!england || !spain)
   throw new Error('Failed to seed countries')
@@ -78,20 +73,19 @@ const leagueData = [
   { name: 'Premier League', countryId: england.id },
   { name: 'La Liga', countryId: spain.id },
 ]
-const seededLeagues = await db
-  .insert(schema.leagues)
-  .values(leagueData)
-  .returning()
-
-// Seed 5 playable Seasons
-const seasonData = []
-for (let year = 2024; year <= 2030; year++) {
-  seasonData.push({ year: year.toString(), ended: 'false' })
+const seededLeagues = []
+for (const league of leagueData) {
+  const existing = await db.query.leagues.findFirst({
+    where: and(eq(schema.leagues.name, league.name), eq(schema.leagues.countryId, league.countryId)),
+  })
+  const row = existing ?? (await db.insert(schema.leagues).values(league).returning())[0]
+  if (row)
+    seededLeagues.push(row)
 }
-await db
-  .insert(schema.season)
-  .values(seasonData)
-  .returning()
+
+// `season` rows are no longer seeded globally — they are created per-save by
+// `createSave()`, one row per save per season, scoped by `game_id`. See
+// server/core/save.ts.
 
 // Seed player positions
 const positionData = [
@@ -100,10 +94,11 @@ const positionData = [
   { name: 'MID' },
   { name: 'ATT' },
 ]
-await db
-  .insert(schema.positions)
-  .values(positionData)
-  .returning()
+for (const position of positionData) {
+  const existing = await db.query.positions.findFirst({ where: eq(schema.positions.name, position.name) })
+  if (!existing)
+    await db.insert(schema.positions).values(position)
+}
 
 // Seed event types (map common match events to ids).
 // Kept in sync with the event types the match engine generates — see
@@ -121,10 +116,11 @@ const eventTypes = [
   { name: 'offside' },
   { name: 'substitution' },
 ]
-await db
-  .insert(schema.eventType)
-  .values(eventTypes)
-  .returning()
+const existingEventTypes = await db.query.eventType.findMany({ columns: { name: true } })
+const existingEventTypeNames = new Set(existingEventTypes.map(row => row.name))
+const missingEventTypes = eventTypes.filter(row => !existingEventTypeNames.has(row.name))
+if (missingEventTypes.length)
+  await db.insert(schema.eventType).values(missingEventTypes)
 
 // Seed Teams and Players
 for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
@@ -174,6 +170,8 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
       // Positions come from `positionsToFill` rather than a uniform random
       // draw: the old version could hand a club eight goalkeepers and no
       // forwards, which is why lineup auto-selection needs a fallback path.
+      // The shape also deliberately stays above the transfer-market minimums:
+      // at least 2 GK, 5 DEF, 5 MID, 2 ATT and 16 players total.
       const empty = { GK: 0, DEF: 0, MID: 0, ATT: 0 } as Record<PositionCode, number>
       const squadSize = Object.values(SQUAD_SHAPE).reduce((total, n) => total + n, 0)
 
@@ -207,8 +205,10 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
  * bigger club pays more for the same player.
  */
 for (const league of seededLeagues) {
+  // Template teams only — once saves exist, this league also contains live
+  // per-save clones (`game_id` set), and this pass must never touch those.
   const leagueTeams = await db.query.teams.findMany({
-    where: (teams, { eq }) => eq(teams.leagueId, league.id),
+    where: (teams, { eq, and, isNull }) => and(eq(teams.leagueId, league.id), isNull(teams.gameId)),
   })
   if (!leagueTeams.length)
     continue
@@ -270,23 +270,8 @@ for (const league of seededLeagues) {
   }
 }
 
-// Generate season 1 fixtures for every league.
-//
-// The pairing logic moved into `server/core/calendar.ts` so the season
-// rollover can reuse it verbatim for season 2 onward. Fixtures within a round
-// now share a kickoff date a week apart from the last, which is what makes
-// "resolve every fixture up to today" mean exactly one matchday.
-for (const league of seededLeagues) {
-  const teamsInLeague = await db.query.teams.findMany({
-    where: (teams, { eq }) => eq(teams.leagueId, league.id),
-  })
-
-  if (!teamsInLeague.length)
-    continue
-
-  const fixtures = buildSeasonFixtures(teamsInLeague.map(team => team.id), 1)
-  if (fixtures.length)
-    await db.insert(schema.matches).values(fixtures)
-}
+// `matches` are no longer seeded globally either — `createSave()` generates
+// this save's own season-1 fixtures over its cloned team ids the moment a
+// save is created. See server/core/save.ts.
 
 process.exit(0)

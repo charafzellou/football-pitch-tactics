@@ -251,9 +251,10 @@ export async function generateSponsorshipOffers(context: DealContext): Promise<n
 }
 
 /** Drops offers the manager has left on the table too long. */
-export async function expireStaleOffers(season: number, round: number): Promise<number> {
+export async function expireStaleOffers(teamId: number, season: number, round: number): Promise<number> {
   const stale = await db.query.sponsorshipDeals.findMany({
     where: and(
+      eq(sponsorshipDeals.teamId, teamId),
       eq(sponsorshipDeals.status, 'offered'),
       eq(sponsorshipDeals.signedSeason, season),
     ),
@@ -429,7 +430,7 @@ export async function runCommercialMarket(input: {
   round: number
   fanConfidence: number
 }): Promise<{ expired: number; created: number }> {
-  const expired = await expireStaleOffers(input.season, input.round)
+  const expired = await expireStaleOffers(input.teamId, input.season, input.round)
 
   const pool = await poolFor(input.teamId, input.season, input.round)
   if (!pool) return { expired, created: 0 }

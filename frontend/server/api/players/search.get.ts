@@ -1,6 +1,7 @@
 import { and, eq, like, ne, or } from 'drizzle-orm'
 import { db } from '../../../server/db'
 import { players, teams } from '../../../server/db/schema'
+import { activeSave } from '../../../server/core/save'
 
 /**
  * The transfer market.
@@ -12,24 +13,28 @@ import { players, teams } from '../../../server/db/schema'
  */
 export default defineEventHandler(async (event) => {
   const query = getQuery(event).query as string
-  const gameState = await db.query.game.findFirst()
+  const gameState = await activeSave(event)
+  if (!gameState) return []
 
-  // A retired player must never appear on the transfer market.
-  const filters = [eq(players.retired, 0)]
+  // Every save's clone of the world otherwise shares one `players` table —
+  // without this filter the transfer market would search (and let you sign
+  // from) every other save's squads too.
+  const filters = [eq(players.retired, 0), eq(players.gameId, gameState.id)]
 
-  if (gameState) {
-    filters.push(or(
-      ne(players.teamId, gameState.playerTeamId),
-      eq(players.freeAgent, 1),
-    )!)
-  }
+  filters.push(or(
+    ne(players.teamId, gameState.playerTeamId),
+    eq(players.freeAgent, 1),
+  )!)
 
   if (query)
     filters.push(like(players.name, `%${query}%`))
 
   const [searchResults, allTeams] = await Promise.all([
     db.query.players.findMany({ where: and(...filters) }),
-    db.query.teams.findMany({ columns: { id: true, name: true, reputation: true } }),
+    db.query.teams.findMany({
+      where: eq(teams.gameId, gameState.id),
+      columns: { id: true, name: true, reputation: true },
+    }),
   ])
 
   const teamById = new Map(allTeams.map(team => [team.id, team]))

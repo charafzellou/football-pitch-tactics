@@ -21,9 +21,12 @@
 import { and, eq, inArray, lt, ne } from 'drizzle-orm'
 import { db } from '../db'
 import { clubNews, game, players, teams, transferOffers } from '../db/schema'
+import type { GameRow } from './save'
 import { postLedger } from './finance'
 import { nudgeFans, transferReaction } from './board'
 import { postNews } from './news'
+import { MIN_SQUAD_SIZE_TO_SELL, saleBlockedReason } from '#shared/squad-rules'
+export { MIN_SQUAD_SIZE_TO_SELL } from '#shared/squad-rules'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -36,14 +39,6 @@ const MAX_PENDING_OFFERS = 4
 /** Chance per matchday that the market takes an interest at all. */
 const OFFER_CHANCE_PER_MATCHDAY = 0.45
 
-/**
- * A squad this size cannot be cut into. Exported because the board's forced
- * sales at stage 3 of insolvency respect the same floor — a crisis is allowed
- * to cost the manager their best player, not to leave them unable to field
- * eleven.
- */
-export const MIN_SQUAD_SIZE_TO_SELL = 16
-
 export interface TransferSettlement {
   playerId: number
   fromTeamId: number
@@ -54,6 +49,8 @@ export interface TransferSettlement {
   round: number
   /** Written onto the player when the fee reflects a new valuation. */
   newMarketValue?: number
+  /** True only for a manager-initiated sale or accepted manager bid. */
+  enforceSquadMinimums?: boolean
 }
 
 export interface TransferOutcome {
@@ -84,6 +81,20 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
 
   if (!player || !from || !to) {
     throw createError({ statusCode: 404, statusMessage: 'Transfer participants not found' })
+  }
+
+  if (input.enforceSquadMinimums) {
+    const squad = await tx.query.players.findMany({
+      where: and(
+        eq(players.teamId, fromTeamId),
+        eq(players.retired, 0),
+        eq(players.freeAgent, 0),
+      ),
+      columns: { id: true, position: true },
+    })
+    const blocked = saleBlockedReason(squad, playerId)
+    if (blocked)
+      throw createError({ statusCode: 400, statusMessage: blocked })
   }
 
   await tx.update(players)
@@ -117,7 +128,12 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
   }
 
   // ---- Reactions, but only to the manager's own business -------------------
-  const gameRow = await tx.query.game.findFirst()
+  // Both clubs are clones of the same save (a transfer never crosses saves —
+  // the transfer market and squad searches are always scoped to one save's
+  // teams), so either team's `gameId` identifies which save's board reacts.
+  const gameRow = from.gameId !== null
+    ? await tx.query.game.findFirst({ where: eq(game.id, from.gameId) })
+    : null
   let fanConfidence: number | null = null
 
   if (gameRow && (fromTeamId === gameRow.playerTeamId || toTeamId === gameRow.playerTeamId)) {
@@ -135,7 +151,7 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
     if (delta !== 0)
       fanConfidence = await nudgeFans(tx, gameRow.id, gameRow.fanConfidence, delta)
 
-    await postNews(tx, [{
+    await postNews(tx, gameRow.id, [{
       season,
       round,
       category: 'transfer',
@@ -174,10 +190,16 @@ function offerPremium(bidderReputation: number): number {
   return 0.08 + standing * 0.30 + Math.random() * 0.12
 }
 
-/** Marks bids that have sat unanswered too long. */
-export async function expireStaleOffers(season: number, round: number): Promise<number> {
+/**
+ * Marks bids that have sat unanswered too long, for one club's own save.
+ *
+ * `playerTeamId` scopes to `toTeamId` — without it this would expire another
+ * save's pending offers the moment their round numbers happened to line up.
+ */
+export async function expireStaleOffers(playerTeamId: number, season: number, round: number): Promise<number> {
   const stale = await db.query.transferOffers.findMany({
     where: and(
+      eq(transferOffers.toTeamId, playerTeamId),
       eq(transferOffers.status, 'pending'),
       eq(transferOffers.season, season),
       lt(transferOffers.round, round - OFFER_LIFETIME_ROUNDS),
@@ -203,8 +225,7 @@ export async function expireStaleOffers(season: number, round: number): Promise<
  * matchday, and only when the squad is big enough that selling is a real
  * choice rather than a forced one.
  */
-export async function generateTransferOffers(season: number, round: number): Promise<number> {
-  const gameRow = await db.query.game.findFirst()
+export async function generateTransferOffers(gameRow: GameRow, season: number, round: number): Promise<number> {
   if (!gameRow || gameRow.dismissedAtSeason !== null)
     return 0
 
@@ -212,7 +233,11 @@ export async function generateTransferOffers(season: number, round: number): Pro
     return 0
 
   const pending = await db.query.transferOffers.findMany({
-    where: and(eq(transferOffers.status, 'pending'), eq(transferOffers.season, season)),
+    where: and(
+      eq(transferOffers.toTeamId, gameRow.playerTeamId),
+      eq(transferOffers.status, 'pending'),
+      eq(transferOffers.season, season),
+    ),
     columns: { id: true, playerId: true },
   })
 
@@ -235,6 +260,7 @@ export async function generateTransferOffers(season: number, round: number): Pro
   const alreadyWanted = new Set(pending.map(offer => offer.playerId))
   const targets = squad
     .filter(player => !alreadyWanted.has(player.id))
+    .filter(player => !saleBlockedReason(squad, player.id))
     .sort((a, b) => b.skillLevel - a.skillLevel)
     // Interest concentrates on the better half of the squad — nobody bids for
     // the twentieth-best player at the club.
@@ -244,7 +270,11 @@ export async function generateTransferOffers(season: number, round: number): Pro
   if (!target)
     return 0
 
-  const suitors = await db.query.teams.findMany({ where: ne(teams.id, gameRow.playerTeamId) })
+  // Suitors are this save's own other clubs — a bid from another save's
+  // Real Madrid clone would be nonsensical.
+  const suitors = await db.query.teams.findMany({
+    where: and(eq(teams.gameId, gameRow.id), ne(teams.id, gameRow.playerTeamId)),
+  })
   if (!suitors.length)
     return 0
 
@@ -285,7 +315,7 @@ export async function generateTransferOffers(season: number, round: number): Pro
     createdAt: new Date(),
   })
 
-  await postNews(db, [{
+  await postNews(db, gameRow.id, [{
     season,
     round,
     category: 'transfer',
@@ -298,9 +328,9 @@ export async function generateTransferOffers(season: number, round: number): Pro
 }
 
 /** Runs the market's own matchday: lapse old bids, then maybe make a new one. */
-export async function runTransferMarket(season: number, round: number): Promise<{ expired: number; created: number }> {
-  const expired = await expireStaleOffers(season, round)
-  const created = await generateTransferOffers(season, round)
+export async function runTransferMarket(gameRow: GameRow, season: number, round: number): Promise<{ expired: number; created: number }> {
+  const expired = await expireStaleOffers(gameRow.playerTeamId, season, round)
+  const created = await generateTransferOffers(gameRow, season, round)
 
   return { expired, created }
 }
@@ -311,6 +341,8 @@ export async function runTransferMarket(season: number, round: number): Promise<
 
 export interface OfferDecision {
   offerId: number
+  /** The offer must belong to this save's own club — never trust the id alone. */
+  toTeamId: number
   accept: boolean
   season: number
   round: number
@@ -318,7 +350,11 @@ export interface OfferDecision {
 
 export async function resolveOffer(decision: OfferDecision): Promise<TransferOutcome | null> {
   const offer = await db.query.transferOffers.findFirst({
-    where: and(eq(transferOffers.id, decision.offerId), eq(transferOffers.status, 'pending')),
+    where: and(
+      eq(transferOffers.id, decision.offerId),
+      eq(transferOffers.toTeamId, decision.toTeamId),
+      eq(transferOffers.status, 'pending'),
+    ),
   })
 
   if (!offer) {
@@ -352,6 +388,7 @@ export async function resolveOffer(decision: OfferDecision): Promise<TransferOut
       round: decision.round,
       // A club that just paid this much has repriced him.
       newMarketValue: offer.amount,
+      enforceSquadMinimums: true,
     })
   })
 }

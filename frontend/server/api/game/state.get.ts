@@ -1,6 +1,5 @@
-import { db } from '../../../server/db'
+import { activeSave } from '../../../server/core/save'
 
-export default defineEventHandler(async () => {
-  const gameState = await db.query.game.findFirst()
-  return gameState
+export default defineEventHandler(async (event) => {
+  return activeSave(event)
 })

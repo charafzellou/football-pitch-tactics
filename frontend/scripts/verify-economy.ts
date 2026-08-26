@@ -99,27 +99,27 @@ check(
 
 console.log('\nPlaying a season headlessly…')
 
-const { club } = await newSave(process.argv[2])
+const { club, game: mainSave } = await newSave(process.argv[2])
 const openingBalances = new Map(
-  (await db.query.teams.findMany()).map(row => [row.id, row.bankBalance]),
+  (await db.query.teams.findMany({ where: eq(teams.gameId, mainSave.id) })).map(row => [row.id, row.bankBalance]),
 )
 
-const state = await db.query.game.findFirst()
-const playedSeason = state!.season
+const state = mainSave
+const playedSeason = state.season
 
 // Taken before a ball is kicked, so the comparison below is a genuine forecast
 // rather than a description of a season already half over.
-const forecast = await forecastForSave(state!)
+const forecast = await forecastForSave(state)
 const predictedClosing = forecast?.projection[0]?.closingBalance ?? 0
 
-const outcome = await playSeason(false)
-await rollOverSeason()
+const outcome = await playSeason(state, false)
+await rollOverSeason(state)
 
 console.log(`Season ${playedSeason} complete${outcome.dismissed ? ' (manager dismissed)' : ''}.\n`)
 
 // --- Ledger integrity ------------------------------------------------------
 
-const finalClubs = await db.query.teams.findMany()
+const finalClubs = await db.query.teams.findMany({ where: eq(teams.gameId, mainSave.id) })
 let worstBreak = 0
 let worstBreakName = ''
 for (const row of finalClubs) {
@@ -201,7 +201,7 @@ check(
 // A stored baseline cannot survive a reseed, so the league-wide figures are
 // reported rather than asserted — they catch an order-of-magnitude mistake,
 // which is all they can honestly claim to.
-const clubs = await clubTotals(playedSeason)
+const clubs = await clubTotals(playedSeason, mainSave.id)
 const medianNet = median(clubs.map(row => row.net))
 const ratios = clubs.map(row => row.wageRatio).filter((r): r is number => r !== null)
 const medianRatio = median(ratios)
@@ -315,8 +315,7 @@ check(
  * So the last two checks drive them deliberately, on a fresh save. Everything
  * measured above has already been recorded, and `newSave()` resets the world.
  */
-const { club: debtClub } = await newSave(club.name)
-const debtSave = (await db.query.game.findFirst())!
+const { club: debtClub, game: debtSave } = await newSave(club.name)
 const debtOpening = debtClub.bankBalance
 
 const PRINCIPAL = 10_000_000
@@ -348,7 +347,7 @@ await db.transaction(async (tx) => {
 })
 
 const DEBT_ROUNDS = 4
-await playRounds(DEBT_ROUNDS, false)
+await playRounds(debtSave, DEBT_ROUNDS, false)
 
 const servicedBook = await activeLoans(db, debtClub.id)
 const servicedLoan = servicedBook[0]
@@ -412,8 +411,8 @@ const squadBefore = (await db.query.players.findMany({
 })).length
 
 for (let round = 0; round < INTERVENTION_ROUNDS + 1; round++) {
-  await playRounds(1, false)
-  const now = await db.query.game.findFirst()
+  await playRounds(debtSave, 1, false)
+  const now = await db.query.game.findFirst({ where: eq(game.id, debtSave.id) })
   if (!now) break
   stages.push(now.insolvencyStage)
   if (now.dismissedAtSeason !== null) break

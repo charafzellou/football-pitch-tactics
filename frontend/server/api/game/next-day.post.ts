@@ -3,8 +3,8 @@ import { game } from '../../../server/db/schema'
 import { requireActiveManager } from '../../../server/core/save'
 import { eq } from 'drizzle-orm'
 
-export default defineEventHandler(async () => {
-  const gameState = await requireActiveManager()
+export default defineEventHandler(async (event) => {
+  const gameState = await requireActiveManager(event)
 
   const newDate = new Date(gameState.currentDate)
   newDate.setDate(newDate.getDate() + 1)

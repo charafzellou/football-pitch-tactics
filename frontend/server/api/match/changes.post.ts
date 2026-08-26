@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { matches } from '../../db/schema'
+import { matches, players } from '../../db/schema'
 import { insertEvents, syncToMinute } from '../../core/match-session'
 import { requireActiveManager } from '../../core/save'
 import { TACTICS } from '../../core/tactics'
@@ -23,12 +23,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'matchId is required' })
   }
 
-  const match = await db.query.matches.findFirst({ where: eq(matches.id, matchId) })
+  const gameState = await requireActiveManager(event)
+
+  const match = await db.query.matches.findFirst({
+    where: and(eq(matches.id, matchId), eq(matches.gameId, gameState.id)),
+  })
   if (!match) {
     throw createError({ statusCode: 404, statusMessage: 'Match not found' })
   }
-
-  const gameState = await requireActiveManager()
 
   // Only the player's own team can be managed mid-match — the CPU side
   // manages itself inside the engine.
@@ -36,6 +38,16 @@ export default defineEventHandler(async (event) => {
   if (match.homeTeamId !== playerTeamId && match.awayTeamId !== playerTeamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage either team in this match' })
   }
+
+  // Position validation must not rely on the browser's squad payload: a
+  // caller can send this request directly. Load the owning squad from the
+  // current save so the shared validator can enforce goalkeeper-to-goalkeeper
+  // substitutions authoritatively on the server too.
+  const squad = await db.query.players.findMany({
+    where: and(eq(players.teamId, playerTeamId), eq(players.gameId, gameState.id)),
+    columns: { id: true, position: true },
+  })
+  const playerPositions = new Map(squad.map(player => [player.id, player.position]))
 
   if (body?.tactic && !TACTICS.some(t => t.name === body.tactic)) {
     throw createError({ statusCode: 400, statusMessage: `Unknown tactic: ${body.tactic}` })
@@ -51,7 +63,7 @@ export default defineEventHandler(async (event) => {
   // exceed MAX_SUBSTITUTIONS, since `subsUsed` never advanced between checks.
   let updated
   try {
-    updated = applyMidMatchChanges(state, playerTeamId, substitutions, body?.tactic)
+    updated = applyMidMatchChanges(state, playerTeamId, substitutions, body?.tactic, playerPositions)
   }
   catch (error) {
     throw createError({ statusCode: 400, statusMessage: error instanceof Error ? error.message : 'Invalid substitution' })

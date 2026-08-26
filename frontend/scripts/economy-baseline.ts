@@ -8,7 +8,7 @@
  */
 import { writeFileSync } from 'fs'
 import { join } from 'path'
-import { eq } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '../server/db'
 import { financeLedger, game, season, teams } from '../server/db/schema'
 import { playSeason } from './sim-season'
@@ -41,10 +41,23 @@ export function median(values: number[]): number {
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
 }
 
-/** Season totals per club, straight from the ledger. */
-export async function clubTotals(forSeason: number): Promise<ClubBaseline[]> {
-  const clubs = await db.query.teams.findMany()
-  const rows = await db.query.financeLedger.findMany({ where: eq(financeLedger.season, forSeason) })
+/**
+ * Season totals per club, straight from the ledger, for one save.
+ *
+ * `gameId` scoping matters here in a way it doesn't everywhere else: neither
+ * `teams.id` nor `financeLedger.season` is globally unique on its own once
+ * more than one save exists — a bare `eq(financeLedger.season, forSeason)`
+ * would fold every save's season-N ledger rows onto whichever save's `teams`
+ * happened to share those ids, corrupting the medians this whole script
+ * exists to measure.
+ */
+export async function clubTotals(forSeason: number, gameId: number): Promise<ClubBaseline[]> {
+  const clubs = await db.query.teams.findMany({ where: eq(teams.gameId, gameId) })
+  const rows = clubs.length
+    ? await db.query.financeLedger.findMany({
+        where: and(eq(financeLedger.season, forSeason), inArray(financeLedger.teamId, clubs.map(club => club.id))),
+      })
+    : []
 
   const byTeam = new Map<number, { income: number; expenses: number; wages: number }>()
   for (const row of rows) {
@@ -72,19 +85,19 @@ export async function clubTotals(forSeason: number): Promise<ClubBaseline[]> {
 }
 
 if (import.meta.main) {
-  const gameState = await db.query.game.findFirst()
+  const gameState = await db.query.game.findFirst({ orderBy: (row, { desc }) => [desc(row.id)] })
   if (!gameState) throw new Error('No save — run `bun run db:seed` then start a game first.')
 
   console.log(`Playing season ${gameState.season} headlessly…`)
-  await playSeason(false)
+  await playSeason(gameState)
 
   // Prize money is the largest single credit a club takes and it only lands at
   // the rollover, so totals stopped at round 38 read a wage ratio ~20 points
   // above the truth. Roll over before measuring.
   const played = gameState.season
-  await rollOverSeason()
+  await rollOverSeason(gameState)
 
-  const clubs = await clubTotals(played)
+  const clubs = await clubTotals(played, gameState.id)
   const baseline: Baseline = {
     capturedAt: new Date().toISOString(),
     season: played,

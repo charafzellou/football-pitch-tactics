@@ -20,18 +20,19 @@ export async function recentForm(
   leagueId: number,
   season: number,
   teamIds: number[],
+  gameId: number,
 ): Promise<Map<number, FormResult[]>> {
   const form = new Map<number, FormResult[]>()
   if (!teamIds.length) return form
 
   const leagueTeams = await db.query.teams.findMany({
-    where: eq(teams.leagueId, leagueId),
+    where: and(eq(teams.leagueId, leagueId), eq(teams.gameId, gameId)),
     columns: { id: true },
   })
   const inLeague = new Set(leagueTeams.map(team => team.id))
 
   const played = await db.query.matches.findMany({
-    where: and(eq(matches.season, season), isNotNull(matches.homeScore)),
+    where: and(eq(matches.season, season), eq(matches.gameId, gameId), isNotNull(matches.homeScore)),
     orderBy: (row, { asc }) => [asc(row.round)],
   })
 

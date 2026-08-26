@@ -1,6 +1,7 @@
 import { db } from '../../server/db'
-import { game, matches } from '../../server/db/schema'
+import { matches } from '../../server/db/schema'
 import { or, eq, and, isNull } from 'drizzle-orm'
+import { activeSave } from '../../server/core/save'
 
 /**
  * The player's fixture list.
@@ -19,7 +20,7 @@ import { or, eq, and, isNull } from 'drizzle-orm'
  * deciding which *other* clubs' fixtures are due for headless resolution.
  */
 export default defineEventHandler(async (event) => {
-  const gameState = await db.query.game.findFirst()
+  const gameState = await activeSave(event)
   if (!gameState) {
     throw createError({
       statusCode: 404,
@@ -30,9 +31,12 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const includePlayed = String(query.includePlayed ?? 'false') === 'true'
 
-  const teamFilter = or(
-    eq(matches.homeTeamId, gameState.playerTeamId),
-    eq(matches.awayTeamId, gameState.playerTeamId),
+  const teamFilter = and(
+    eq(matches.gameId, gameState.id),
+    or(
+      eq(matches.homeTeamId, gameState.playerTeamId),
+      eq(matches.awayTeamId, gameState.playerTeamId),
+    ),
   )
 
   const schedule = await db.query.matches.findMany({

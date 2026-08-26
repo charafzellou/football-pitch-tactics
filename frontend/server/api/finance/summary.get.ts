@@ -15,13 +15,14 @@ import { streamMeta } from '#shared/finance'
 import { activeLoans, interestPerRoundFor, overdraftInterestFor } from '../../core/loans'
 import { buildMatchdayContext } from '../../core/finance'
 import { getSeasonStatus } from '../../core/season'
+import { activeSave } from '../../core/save'
 
 /**
  * Everything the finance page needs: where the money is, where it came from,
  * and where it is heading.
  */
-export default defineEventHandler(async () => {
-  const gameState = await db.query.game.findFirst()
+export default defineEventHandler(async (event) => {
+  const gameState = await activeSave(event)
   if (!gameState) return null
 
   const club = await db.query.teams.findFirst({ where: eq(teams.id, gameState.playerTeamId) })
@@ -36,7 +37,7 @@ export default defineEventHandler(async () => {
       where: and(eq(financeLedger.teamId, club.id), eq(financeLedger.season, gameState.season)),
       orderBy: [desc(financeLedger.round), desc(financeLedger.id)],
     }),
-    getSeasonStatus(),
+    getSeasonStatus(gameState),
     activeLoans(db, club.id),
   ])
 
@@ -98,7 +99,7 @@ export default defineEventHandler(async () => {
   const projectedBalance = Math.round(club.bankBalance + perRound * roundsLeft)
 
   // Live preview of what the current ticket price is doing.
-  const context = await buildMatchdayContext(club.leagueId, gameState.season, status?.round ?? 1)
+  const context = await buildMatchdayContext(club.leagueId, gameState.season, status?.round ?? 1, gameState.id)
   const position = context.positionByTeam.get(club.id) ?? 10
   const generalCapacity = Math.max(0, club.stadiumCapacity - seatsLostToBoxes(club.hospitalityBoxes))
   const previewAttendance = attendanceFor({

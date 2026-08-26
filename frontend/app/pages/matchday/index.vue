@@ -210,15 +210,16 @@ function announceGoal(event: MatchEvent) {
 
   sfx.play(isPlayerGoal ? 'goal' : 'goalAgainst')
 
-  // The score is derived from `currentMinute`, and this runs mid-reveal, so
-  // count the goal in by hand rather than reading a value that hasn't caught up.
+  // `currentMinute` has already advanced before this event is announced, so
+  // `liveState` already includes this goal. Do not add it again here: doing so
+  // made the overlay one goal ahead of the HUD and persisted match state.
   goalMoment.value = {
     key: ++goalKey,
     minute: event.minute,
     scorer: playerNameFor(event.playerId),
     teamName: team?.name ?? '—',
-    homeScore: homeScore.value + (isHome ? 1 : 0),
-    awayScore: awayScore.value + (isHome ? 0 : 1),
+    homeScore: homeScore.value,
+    awayScore: awayScore.value,
     isPlayerGoal,
   }
 }

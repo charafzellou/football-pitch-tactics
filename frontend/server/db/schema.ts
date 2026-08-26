@@ -1,4 +1,4 @@
-import { sqliteTable, integer, real, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, real, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 /**
  * Represents the `countries` table in the database.
@@ -27,6 +27,11 @@ export const leagues = sqliteTable('leagues', {
  */
 export const teams = sqliteTable('teams', {
   id: integer('id').primaryKey(),
+  /**
+   * `NULL` = a seed template row (the reference roster every save is cloned
+   * from). Non-null = a live per-save clone, owned by exactly one save.
+   */
+  gameId: integer('game_id').references((): AnySQLiteColumn => game.id),
   name: text('name').notNull(),
   leagueId: integer('league_id')
     .notNull()
@@ -97,6 +102,13 @@ export const positions = sqliteTable('positions', {
  */
 export const players = sqliteTable('players', {
   id: integer('id').primaryKey(),
+  /**
+   * Denormalized from `teams.gameId` — set once at insert/clone time and
+   * never changed after (a player never moves to another save). Avoids a
+   * join on every squad read, which happens on the match-simulation hot
+   * path. `NULL` for the seed template roster, same convention as `teams`.
+   */
+  gameId: integer('game_id').references((): AnySQLiteColumn => game.id),
   name: text('name').notNull(),
   age: integer('age').notNull(),
   position: text('position').notNull(),
@@ -152,13 +164,29 @@ export const players = sqliteTable('players', {
 
 /**
  * Represents the `season` table in the database.
- * This table stores information about each season in the game.
+ * One row per season *within a save*, holding that season's own `year`/
+ * `ended` bookkeeping. `id` is a private surrogate key — every other table
+ * (`game.season`, `matches.season`, `season_summary.season`, ...) stores the
+ * plain 1-based `seasonNumber`, not this row's `id`, because arithmetic is
+ * done directly on that value throughout the codebase
+ * (`contractUntilSeason: season + seasons - 1` and similar). `id` and
+ * `seasonNumber` used to be conflated (the row's `id` was seeded to equal
+ * the season number), which meant two saves both on "season 3" collided on
+ * one shared `season.id = 3` row. The unique index on
+ * `(gameId, seasonNumber)` is what makes that impossible now, and is how
+ * this table itself is looked up — by `(gameId, seasonNumber)`, never by a
+ * bare number assumed to be its id.
  */
 export const season = sqliteTable('season', {
   id: integer('id').primaryKey(),
+  gameId: integer('game_id').notNull().references((): AnySQLiteColumn => game.id),
+  /** 1-based season number within this save. Was previously conflated with `id` itself. */
+  seasonNumber: integer('season_number').notNull(),
   year: text('year').notNull(),
   ended: text('ended').notNull().default('false'),
-})
+}, table => ({
+  gameSeasonUnique: uniqueIndex('season_game_number_unique').on(table.gameId, table.seasonNumber),
+}))
 
 /**
  * Represents the `eventTypes` table in the database.
@@ -175,10 +203,21 @@ export const eventType = sqliteTable('event_type', {
  */
 export const game = sqliteTable('game', {
   id: integer('id').primaryKey(),
+  /** Anonymous per-browser save identity, generated once at creation and set as an httpOnly cookie. */
+  token: text('token').notNull().unique(),
   playerTeamId: integer('player_team_id')
     .notNull()
     .references(() => teams.id),
-  season: integer('season').notNull().references(() => season.id),
+  /**
+   * The season NUMBER (1, 2, 3, ...), not a foreign key to `season.id`.
+   *
+   * Arithmetic is done directly on this value throughout the codebase
+   * (`contractUntilSeason: season + seasons - 1`, `untilSeason - season`,
+   * etc.), so it has to stay a plain per-save counter rather than an opaque
+   * database key. `season.id` is a separate surrogate, used only to look up
+   * that table's own `year`/`ended` bookkeeping via `(gameId, seasonNumber)`.
+   */
+  season: integer('season').notNull(),
   currentDate: integer('current_date', { mode: 'timestamp' }).notNull(),
   /**
    * Whether losing the board's faith can end the save.
@@ -221,6 +260,8 @@ export const game = sqliteTable('game', {
  */
 export const matches = sqliteTable('matches', {
   id: integer('id').primaryKey(),
+  /** The save this fixture belongs to. Matches never pre-exist before a save. */
+  gameId: integer('game_id').notNull().references(() => game.id),
   homeTeamId: integer('home_team_id')
     .notNull()
     .references(() => teams.id),
@@ -230,7 +271,8 @@ export const matches = sqliteTable('matches', {
   homeScore: integer('home_score'),
   awayScore: integer('away_score'),
   played: integer('played').notNull().default(0),
-  season: integer('season').notNull().references(() => season.id),
+  /** The season NUMBER within this save, not a foreign key to `season.id` — see `game.season`. */
+  season: integer('season').notNull(),
   /**
    * Matchday number within the season, 1-based.
    *
@@ -258,7 +300,9 @@ export const matches = sqliteTable('matches', {
  */
 export const seasonSummary = sqliteTable('season_summary', {
   id: integer('id').primaryKey(),
-  season: integer('season').notNull().references(() => season.id),
+  gameId: integer('game_id').notNull().references(() => game.id),
+  /** The season NUMBER within this save, not a foreign key to `season.id` — see `game.season`. */
+  season: integer('season').notNull(),
   leagueId: integer('league_id').notNull().references(() => leagues.id),
   championTeamId: integer('champion_team_id').notNull().references(() => teams.id),
   championPoints: integer('champion_points').notNull(),
@@ -334,6 +378,7 @@ export const transferOffers = sqliteTable('transfer_offers', {
  */
 export const clubNews = sqliteTable('club_news', {
   id: integer('id').primaryKey(),
+  gameId: integer('game_id').notNull().references(() => game.id),
   season: integer('season').notNull(),
   round: integer('round').notNull().default(0),
   /** `board` | `fans` | `transfer` | `contract` | `result` | `finance` */

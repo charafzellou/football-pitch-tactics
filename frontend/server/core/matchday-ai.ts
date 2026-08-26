@@ -109,9 +109,10 @@ export interface ResolutionResult {
  * Their own fixtures are deliberately excluded — those are played manually on
  * the matchday screen, and silently simulating one would rob them of the match.
  */
-export async function resolveFixturesUpTo(date: Date, playerTeamId: number): Promise<ResolutionResult> {
+export async function resolveFixturesUpTo(date: Date, playerTeamId: number, gameId: number): Promise<ResolutionResult> {
   const due = await db.query.matches.findMany({
     where: and(
+      eq(matches.gameId, gameId),
       eq(matches.played, 0),
       lte(matches.matchDate, date),
       ne(matches.homeTeamId, playerTeamId),
@@ -137,7 +138,7 @@ export async function resolveFixturesUpTo(date: Date, playerTeamId: number): Pro
     const key = `${leagueId}:${season}:${round}`
     let context = contexts.get(key)
     if (!context) {
-      context = await buildMatchdayContext(leagueId, season, round)
+      context = await buildMatchdayContext(leagueId, season, round, gameId)
       contexts.set(key, context)
     }
     return context

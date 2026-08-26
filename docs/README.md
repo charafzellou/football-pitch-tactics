@@ -16,6 +16,7 @@ This folder contains all documentation for the project, split into **technical**
 | [technical/match-engine.md](technical/match-engine.md) | Simulation algorithm — lineup resolution, stats calculation, weighted event generation |
 | [technical/season.md](technical/season.md) | Season lifecycle — fixture calendar, AI fixture resolution, ageing, progression, retirement, youth intake, rollover |
 | [technical/economy.md](technical/economy.md) | Money — the ledger, the commercial decomposition, sponsors, the stadium, debt, insolvency, the four-season forecast and the budget advisor |
+| [technical/testing.md](technical/testing.md) | Unit test scope and conventions, coverage thresholds, CI pipeline, known gaps |
 
 ## Functional Documentation
 

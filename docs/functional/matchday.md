@@ -298,5 +298,6 @@ Achieved with a `grid-cols-2 lg:grid-cols-3` grid, `order` utilities placing Hom
 - ~~No stamina influence on match performance~~ — see [Fatigue and Stamina](../technical/match-engine.md#fatigue-and-stamina).
 - ~~Any pause in the second half failed with `400 Match has not started`~~ — the result was being committed (and `matches.state` nulled) as soon as the second half was *simulated*, ~45 seconds before it was watched. Finalisation moved to `POST /api/match/finish`, called when the clock actually reaches 90.
 - ~~A batch of substitutions was validated against a frozen snapshot~~ — chaining ("A off, B on" then "B off, C on") was wrongly rejected, and a batch could exceed `MAX_SUBSTITUTIONS`. Validation now folds each swap in before checking the next.
+- ~~A goalkeeper could be replaced by an outfield player~~ — substitution validation now preserves goalkeeper status in both the Matchday panel and the server API; CPU injury replacements follow the same restriction.
 - ~~A failed match request left the page frozen with the spinner up and no explanation~~ — every match call now reports errors as a toast and restores the controls.
 - ~~The tactics panel stayed painted over the full-time screen~~ — it is `v-if`d on the same condition as its `open` prop, so it unmounts rather than lingering with stale staged substitutions.

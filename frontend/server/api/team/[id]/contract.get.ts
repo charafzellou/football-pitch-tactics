@@ -10,6 +10,7 @@ import {
 } from '../../../core/contracts'
 import { leagueStandingFor } from '../../../core/finance'
 import { getSeasonStatus } from '../../../core/season'
+import { activeSave } from '../../../core/save'
 
 /**
  * What this player wants to re-sign.
@@ -27,7 +28,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Team id and playerId are required' })
   }
 
-  const gameState = await db.query.game.findFirst()
+  const gameState = await activeSave(event)
   if (!gameState || gameState.playerTeamId !== teamId) {
     throw createError({ statusCode: 403, statusMessage: 'You do not manage that club' })
   }
@@ -44,7 +45,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'That player is not available to negotiate with' })
   }
 
-  const status = await getSeasonStatus()
+  const status = await getSeasonStatus(gameState)
   const standing = await leagueStandingFor(teamId, gameState.season, status?.round ?? 0)
   if (!standing) {
     throw createError({ statusCode: 404, statusMessage: 'Club not found' })

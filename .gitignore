@@ -1,8 +1,13 @@
+# AI Development files
+_bmad*
+.agents
+.hermes
+
 # Local env files
 .env
 .env.*
 !.env.example
 
 # Database files
-*.sqlite
+*.sqlite*
 *.db
