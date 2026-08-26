@@ -10,6 +10,7 @@
 import { computed, h, ref } from 'vue'
 import { UBadge } from '#components'
 import { LINEUP_SLOT_ORDER, normalizePosition, isAvailable } from '#shared/lineup'
+import { saleBlockedReason } from '#shared/squad-rules'
 import { developmentTrend } from '#shared/progression'
 import { averageOf, formatMoney, formatMoneyCompact } from '~/utils/format'
 import { sortableHeader, positionSortingFn } from '~/utils/table'
@@ -104,6 +105,15 @@ const balanceAfterSale = computed(() => {
 })
 
 function requestSale(player: SquadPlayer) {
+  const blocked = saleBlockedReason(squad.value, player.id)
+  if (blocked) {
+    toast.warn({
+      title: 'Sale blocked',
+      description: blocked,
+    })
+    return
+  }
+
   if (!settings.confirmSelling) {
     void completeSale(player)
     return
@@ -447,6 +457,9 @@ const columns = [
         >
           <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-3.5 shrink-0" />
           {{ saleDepthWarning }}
+        </p>
+        <p class="app-muted-text mt-3 text-[11px]">
+          Minimum squad after a sale: 2 GK · 5 DEF · 5 MID · 2 FW · 16 players total.
         </p>
       </template>
     </AppConfirmModal>

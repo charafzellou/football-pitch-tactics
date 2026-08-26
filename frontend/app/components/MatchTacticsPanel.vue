@@ -16,7 +16,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { LineupSlot } from '#shared/lineup'
 import { normalizePosition, sortByLineupOrder } from '#shared/lineup'
-import type { MatchSideState, MatchState, SubstitutionRequest } from '#shared/match-state'
+import type { MatchSideState, MatchState, PlayerPositionMap, SubstitutionRequest } from '#shared/match-state'
 import { MAX_SUBSTITUTIONS, applyMidMatchChanges, effectiveSkill, substitutionError } from '#shared/match-state'
 import { useSfx } from '~/composables/useSfx'
 
@@ -61,6 +61,9 @@ const shakeBenchId = ref<number | null>(null)
 
 const ownSide = computed<MatchSideState>(() => props.state[props.side])
 const squadById = computed(() => new Map(props.squad.map(player => [player.id, player])))
+const playerPositions = computed<PlayerPositionMap>(() =>
+  new Map(props.squad.map(player => [player.id, player.position])),
+)
 
 /**
  * `immediate` matters: the parent `v-if`s this component on the same condition
@@ -85,7 +88,13 @@ const stagedSide = computed<MatchSideState>(() => {
   if (!stagedSubs.value.length) return ownSide.value
 
   try {
-    return applyMidMatchChanges(props.state, ownSide.value.teamId, stagedSubs.value)[props.side]
+    return applyMidMatchChanges(
+      props.state,
+      ownSide.value.teamId,
+      stagedSubs.value,
+      undefined,
+      playerPositions.value,
+    )[props.side]
   }
   catch {
     // Only reachable if state changed underneath a staged list; fall back to
@@ -171,7 +180,7 @@ function benchBlockedReason(playerId: number): string | null {
   return substitutionError(stagedSide.value, {
     playerOutId: selectedOutId.value,
     playerInId: playerId,
-  })
+  }, playerPositions.value)
 }
 
 function selectOut(playerId: number) {

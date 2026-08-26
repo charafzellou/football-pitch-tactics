@@ -39,6 +39,8 @@ The game is built using :
 - **Skill Level**: A numerical representation of the player's overall skill (1-100).
 - **Stamina**: A measure of the player's energy levels (0-100), affecting their performance during matches. Drains while on the pitch — faster for outfield players than for a goalkeeper — and only partially recovers between matches, so repeatedly fielding the same lineup gradually wears a squad down.
 - **Injury Status**: Whether a player is available for selection. An in-match injury takes them off immediately and rules them out for a handful of upcoming matches.
+- **Substitutions**: Up to five changes per side are allowed during a match. Goalkeepers can only be replaced by another goalkeeper; outfield players cannot replace a goalkeeper or become one through a substitution.
+- **Squad depth**: Every seeded club starts with at least 2 goalkeepers, 5 defenders, 5 midfielders, 2 forwards, and 16 players in total. These minimums are also preserved when selling players.
 - **Market Value**: The estimated worth of the player in the transfer market. This is the price a user should pay to acquire the player, or the price a user receives if they sell a player.
 
 ### Team Attributes
@@ -88,3 +90,13 @@ To set up the development environment, follow these steps:
    ```
 
 5. Open your browser and navigate to `http://localhost:8080` to see the application in action.
+
+## Testing
+
+```bash
+cd frontend
+bun run test              # unit tests
+bun run test:coverage     # unit tests with a coverage report
+```
+
+Unit tests cover the game's pure logic — `server/core/*`, `shared/*`, `app/utils/*` — and run in GitHub Actions CI on every push and PR. See [docs/technical/testing.md](docs/technical/testing.md) for scope, conventions, and known gaps.

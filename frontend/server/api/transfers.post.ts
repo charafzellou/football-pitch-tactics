@@ -70,6 +70,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'That player has retired' })
   }
 
+  if (action === 'sell' && (player.teamId !== gameState.playerTeamId || player.freeAgent)) {
+    throw createError({ statusCode: 400, statusMessage: 'You can only sell players in your active squad' })
+  }
+
   const status = await getSeasonStatus(gameState)
   const round = status?.round ?? 0
   const season = gameState.season
@@ -289,6 +293,7 @@ export default defineEventHandler(async (event) => {
     round,
     // Sold at a premium, so he is worth more to the next club that asks.
     newMarketValue: buyerTeam.transferValue,
+    enforceSquadMinimums: true,
   }))
 
   return {

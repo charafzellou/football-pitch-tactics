@@ -156,9 +156,26 @@ Available budget is shown at the top of the Transfers page. It is fetched via `u
 | Constraint | Enforced by |
 |---|---|
 | No AI buyer found | Server returns `400 "No team can afford this player"` |
-| Player doesn't belong to player team | Not enforced on sell — server sells from player's team by looking up `player.teamId` |
-| Selling down to 0 players | Not prevented — the player can sell their entire squad |
+| Player doesn't belong to the player's team | Server returns `400 "You can only sell players in your active squad"` |
+| Minimum goalkeepers | Sale blocked if the post-sale squad would have fewer than 2 goalkeepers |
+| Minimum defenders | Sale blocked if the post-sale squad would have fewer than 5 defenders |
+| Minimum midfielders | Sale blocked if the post-sale squad would have fewer than 5 midfielders |
+| Minimum forwards | Sale blocked if the post-sale squad would have fewer than 2 forwards |
+| Minimum total squad | Sale blocked if the post-sale active squad would have fewer than 16 players |
+| Accepted AI bid | Uses the same squad-floor guard as a manual sale |
 | Manager has been dismissed | `requireActiveManager()` returns `403 "You were dismissed. This save is closed."` |
+
+The position floors are checked against the **post-sale** squad, using the
+normalized position aliases shared with lineup selection. Injured players still
+count as squad members until they are retired or released. The complete policy
+lives in `frontend/shared/squad-rules.ts` and is checked inside the transfer
+transaction, so a stale browser or two simultaneous sale requests cannot bypass
+the limits. A blocked sale returns HTTP 400 and the Team page shows a `Sale
+blocked` toast explaining the applicable minimum and projected remaining count.
+
+The same rule applies when accepting an AI bid. New AI offers are not generated
+for players whose departure would violate the floor, and an older pending offer
+is rechecked when accepted.
 
 ---
 

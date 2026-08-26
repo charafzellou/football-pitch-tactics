@@ -3,7 +3,7 @@ import * as schema from './schema'
 import { faker } from '@faker-js/faker'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { SQUAD_SHAPE, initialPotential, marketValueFor, positionsToFill } from '../core/progression'
 import type { PositionCode } from '../core/progression'
 import {
@@ -47,22 +47,23 @@ const laLigaData = JSON.parse(
 // the entire point of separating templates from saves. `season`, `matches`
 // and everything else keyed to a save are never touched here at all — they
 // are created per-save by `createSave()`.
-await db.delete(schema.eventType)
+// Event types are global and historical match events reference them. Preserve
+// existing rows during a template reseed and add only newly supported names.
 await db.delete(schema.players).where(isNull(schema.players.gameId))
-await db.delete(schema.positions)
 await db.delete(schema.teams).where(isNull(schema.teams.gameId))
-await db.delete(schema.leagues)
-await db.delete(schema.countries)
 
 // Seed Countries
 const countryData = [{ name: 'England' }, { name: 'Spain' }]
-const seededCountries = await db
-  .insert(schema.countries)
-  .values(countryData)
-  .returning()
+const seededCountries = []
+for (const country of countryData) {
+  const existing = await db.query.countries.findFirst({ where: eq(schema.countries.name, country.name) })
+  const row = existing ?? (await db.insert(schema.countries).values(country).returning())[0]
+  if (row)
+    seededCountries.push(row)
+}
 
-const england = seededCountries[0]
-const spain = seededCountries[1]
+const england = seededCountries.find(country => country.name === 'England')
+const spain = seededCountries.find(country => country.name === 'Spain')
 
 if (!england || !spain)
   throw new Error('Failed to seed countries')
@@ -72,10 +73,15 @@ const leagueData = [
   { name: 'Premier League', countryId: england.id },
   { name: 'La Liga', countryId: spain.id },
 ]
-const seededLeagues = await db
-  .insert(schema.leagues)
-  .values(leagueData)
-  .returning()
+const seededLeagues = []
+for (const league of leagueData) {
+  const existing = await db.query.leagues.findFirst({
+    where: and(eq(schema.leagues.name, league.name), eq(schema.leagues.countryId, league.countryId)),
+  })
+  const row = existing ?? (await db.insert(schema.leagues).values(league).returning())[0]
+  if (row)
+    seededLeagues.push(row)
+}
 
 // `season` rows are no longer seeded globally — they are created per-save by
 // `createSave()`, one row per save per season, scoped by `game_id`. See
@@ -88,10 +94,11 @@ const positionData = [
   { name: 'MID' },
   { name: 'ATT' },
 ]
-await db
-  .insert(schema.positions)
-  .values(positionData)
-  .returning()
+for (const position of positionData) {
+  const existing = await db.query.positions.findFirst({ where: eq(schema.positions.name, position.name) })
+  if (!existing)
+    await db.insert(schema.positions).values(position)
+}
 
 // Seed event types (map common match events to ids).
 // Kept in sync with the event types the match engine generates — see
@@ -109,10 +116,11 @@ const eventTypes = [
   { name: 'offside' },
   { name: 'substitution' },
 ]
-await db
-  .insert(schema.eventType)
-  .values(eventTypes)
-  .returning()
+const existingEventTypes = await db.query.eventType.findMany({ columns: { name: true } })
+const existingEventTypeNames = new Set(existingEventTypes.map(row => row.name))
+const missingEventTypes = eventTypes.filter(row => !existingEventTypeNames.has(row.name))
+if (missingEventTypes.length)
+  await db.insert(schema.eventType).values(missingEventTypes)
 
 // Seed Teams and Players
 for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
@@ -162,6 +170,8 @@ for (let leagueIndex = 0; leagueIndex < seededLeagues.length; leagueIndex++) {
       // Positions come from `positionsToFill` rather than a uniform random
       // draw: the old version could hand a club eight goalkeepers and no
       // forwards, which is why lineup auto-selection needs a fallback path.
+      // The shape also deliberately stays above the transfer-market minimums:
+      // at least 2 GK, 5 DEF, 5 MID, 2 ATT and 16 players total.
       const empty = { GK: 0, DEF: 0, MID: 0, ATT: 0 } as Record<PositionCode, number>
       const squadSize = Object.values(SQUAD_SHAPE).reduce((total, n) => total + n, 0)
 

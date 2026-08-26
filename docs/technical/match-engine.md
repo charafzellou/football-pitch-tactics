@@ -260,7 +260,7 @@ Injured players still recover the flat `+10`/match while they're out, so a 3-mat
 
 ## Substitutions
 
-Up to `MAX_SUBSTITUTIONS = 5` per side per match (`shared/match-state.ts`). `substitutionError(side, request)` is the single validation function — checks subs remaining, that the outgoing player is actually on the pitch (or injured — see above) and not sent off, and the incoming player is on the bench, not already used, and not injured — called both by the API (to reject an illegal request with a 400) and by the Matchday tactics panel (to grey out illegal choices before the request is even sent).
+Up to `MAX_SUBSTITUTIONS = 5` per side per match (`shared/match-state.ts`). `substitutionError(side, request, playerPositions)` is the single validation function — checks subs remaining, that the outgoing player is actually on the pitch (or injured — see above) and not sent off, that the incoming player is on the bench, not already used, and not injured, and that goalkeeper status is preserved. A goalkeeper can only be replaced by another goalkeeper; an outfield player can only be replaced by another outfield player. The API loads `playerPositions` from the owning save so a direct request cannot bypass this rule, while the Matchday tactics panel uses the same map to grey out invalid choices before submission.
 
 A substitution doesn't touch `stats.attack`/`stats.defence` directly — those are derived fresh every minute from whoever is currently `onPitch` (see [Phase 2](#phase-2--team-stats-calculateteamstats)), so swapping a player takes effect on the very next minute simulated.
 
@@ -268,7 +268,7 @@ A substitution doesn't touch `stats.attack`/`stats.defence` directly — those a
 
 A `Team` with `autoManaged: true` (every club except the human player's) manages its own bench, in two ways:
 
-- **Injury reaction, immediate.** If a CPU side has an unreplaced player in `injured`, `pickInjuryReplacement` fires on the very next minute — same-slot bench player if one exists, otherwise the best bench player available. There's no upgrade margin to clear: the side is already a player down, so any fit body beats staying at ten.
+- **Injury reaction, immediate.** If a CPU side has an unreplaced player in `injured`, `pickInjuryReplacement` fires on the very next minute — same-slot bench player if one exists, otherwise the best legal outfield player. A goalkeeper can only be replaced by a goalkeeper, and an outfield player can never be replaced by a goalkeeper. There's no upgrade margin to clear: the side is already a player down, so any fit legal body beats staying at ten.
 - **Routine review, scheduled.** At `AI_REVIEW_MINUTES = [45, 60, 70, 80]`, if it has subs remaining, it compares its weakest on-pitch outfielder (by `effectiveSkill`) against the best bench player in the same position slot, and swaps if the gain clears `AI_UPGRADE_MARGIN = 2` effective skill points.
 
 At most one substitution per side per minute either way.

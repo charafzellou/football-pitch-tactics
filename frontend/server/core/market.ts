@@ -25,6 +25,8 @@ import type { GameRow } from './save'
 import { postLedger } from './finance'
 import { nudgeFans, transferReaction } from './board'
 import { postNews } from './news'
+import { MIN_SQUAD_SIZE_TO_SELL, saleBlockedReason } from '#shared/squad-rules'
+export { MIN_SQUAD_SIZE_TO_SELL } from '#shared/squad-rules'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -37,14 +39,6 @@ const MAX_PENDING_OFFERS = 4
 /** Chance per matchday that the market takes an interest at all. */
 const OFFER_CHANCE_PER_MATCHDAY = 0.45
 
-/**
- * A squad this size cannot be cut into. Exported because the board's forced
- * sales at stage 3 of insolvency respect the same floor — a crisis is allowed
- * to cost the manager their best player, not to leave them unable to field
- * eleven.
- */
-export const MIN_SQUAD_SIZE_TO_SELL = 16
-
 export interface TransferSettlement {
   playerId: number
   fromTeamId: number
@@ -55,6 +49,8 @@ export interface TransferSettlement {
   round: number
   /** Written onto the player when the fee reflects a new valuation. */
   newMarketValue?: number
+  /** True only for a manager-initiated sale or accepted manager bid. */
+  enforceSquadMinimums?: boolean
 }
 
 export interface TransferOutcome {
@@ -85,6 +81,20 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
 
   if (!player || !from || !to) {
     throw createError({ statusCode: 404, statusMessage: 'Transfer participants not found' })
+  }
+
+  if (input.enforceSquadMinimums) {
+    const squad = await tx.query.players.findMany({
+      where: and(
+        eq(players.teamId, fromTeamId),
+        eq(players.retired, 0),
+        eq(players.freeAgent, 0),
+      ),
+      columns: { id: true, position: true },
+    })
+    const blocked = saleBlockedReason(squad, playerId)
+    if (blocked)
+      throw createError({ statusCode: 400, statusMessage: blocked })
   }
 
   await tx.update(players)
@@ -250,6 +260,7 @@ export async function generateTransferOffers(gameRow: GameRow, season: number, r
   const alreadyWanted = new Set(pending.map(offer => offer.playerId))
   const targets = squad
     .filter(player => !alreadyWanted.has(player.id))
+    .filter(player => !saleBlockedReason(squad, player.id))
     .sort((a, b) => b.skillLevel - a.skillLevel)
     // Interest concentrates on the better half of the squad — nobody bids for
     // the twentieth-best player at the club.
@@ -377,6 +388,7 @@ export async function resolveOffer(decision: OfferDecision): Promise<TransferOut
       round: decision.round,
       // A club that just paid this much has repriced him.
       newMarketValue: offer.amount,
+      enforceSquadMinimums: true,
     })
   })
 }

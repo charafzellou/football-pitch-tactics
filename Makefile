@@ -26,7 +26,7 @@ setup:
 	@curl -fsSL https://bun.sh/install | bash
 	@rm -rf frontend/node_modules frontend/bun.lock
 	@rm -rf frontend/.data frontend/.nuxt frontend/.output
-	@rm -f frontend/db.sqlite
+	@rm -f frontend/db.sqlite*
 	@bun install --cwd frontend/
 	@bun run --cwd frontend/ db:setup
 
@@ -35,7 +35,7 @@ setup:
 frontend-run:
 	@echo "Running frontend..."
 	@rm -rf frontend/.data frontend/.nuxt frontend/.output
-	@rm -f frontend/db.sqlite
+	@rm -f frontend/db.sqlite*
 	@bun run --cwd frontend/ db:setup
 	@bun run --cwd frontend/ dev
 

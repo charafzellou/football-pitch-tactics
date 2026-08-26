@@ -35,6 +35,7 @@ import { nudgeFans } from './board'
 import { MIN_SQUAD_SIZE_TO_SELL, settleTransfer } from './market'
 import { postNews } from './news'
 import type { NewsItem } from './news'
+import { saleBlockedReason } from '#shared/squad-rules'
 
 /** Consecutive overdrawn matchdays before the board stops the club trading. */
 export const EMBARGO_ROUNDS = 3
@@ -68,7 +69,8 @@ export interface InsolvencyState {
   forcedSale: ForcedSale | null
 }
 
-function stageFor(balance: number, insolventRounds: number, previousStage: number): number {
+/** Exported for direct unit testing — see server/core/insolvency.test.ts. */
+export function stageFor(balance: number, insolventRounds: number, previousStage: number): number {
   if (balance >= 0)
     return Math.max(0, previousStage - 1)
 
@@ -204,7 +206,20 @@ async function forceSale(
     return null
   }
 
-  const target = [...squad].sort((a, b) => b.marketValue - a.marketValue)[0]
+  const sellable = squad.filter(player => !saleBlockedReason(squad, player.id))
+  if (!sellable.length) {
+    news.push({
+      season,
+      round,
+      category: 'finance',
+      tone: 'negative',
+      headline: 'The board could not find a legal sale',
+      body: 'Every remaining player is needed to preserve the club’s minimum squad composition.',
+    })
+    return null
+  }
+
+  const target = [...sellable].sort((a, b) => b.marketValue - a.marketValue)[0]
   if (!target)
     return null
 
