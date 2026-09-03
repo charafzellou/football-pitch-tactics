@@ -4,6 +4,7 @@ import { players, teams, transferOffers } from '../../db/schema'
 import { activeSave } from '../../core/save'
 import { OFFER_LIFETIME_ROUNDS } from '../../core/market'
 import { getSeasonStatus } from '../../core/season'
+import { evaluateTransferDeparture } from '#shared/squad-transfer'
 
 /**
  * Bids currently on the table for the manager's players.
@@ -30,13 +31,21 @@ export default defineEventHandler(async () => {
   if (!offers.length)
     return []
 
-  const [squad, clubs, status] = await Promise.all([
+  const [offeredPlayers, playerSquad, clubs, status] = await Promise.all([
     db.query.players.findMany({ where: inArray(players.id, offers.map(offer => offer.playerId)) }),
+    db.query.players.findMany({
+      where: and(
+        eq(players.teamId, gameState.playerTeamId),
+        eq(players.retired, 0),
+        eq(players.freeAgent, 0),
+      ),
+      columns: { id: true, position: true },
+    }),
     db.query.teams.findMany({ where: inArray(teams.id, offers.map(offer => offer.fromTeamId)) }),
     getSeasonStatus(),
   ])
 
-  const playerById = new Map(squad.map(player => [player.id, player]))
+  const playerById = new Map(offeredPlayers.map(player => [player.id, player]))
   const clubById = new Map(clubs.map(club => [club.id, club]))
   const currentRound = status?.round ?? 0
 
@@ -45,8 +54,10 @@ export default defineEventHandler(async () => {
     const club = clubById.get(offer.fromTeamId)
 
     // A player who has since retired or moved on is no longer sellable.
-    if (!player || !club || player.teamId !== gameState.playerTeamId || player.retired)
+    if (!player || !club || player.teamId !== gameState.playerTeamId || player.retired || player.freeAgent)
       return []
+
+    const eligibility = evaluateTransferDeparture(playerSquad, player.id)
 
     return [{
       id: offer.id,
@@ -56,6 +67,8 @@ export default defineEventHandler(async () => {
       roundsRemaining: Math.max(0, offer.round + OFFER_LIFETIME_ROUNDS - currentRound),
       fromTeamName: club.name,
       fromTeamReputation: club.reputation,
+      saleEligible: eligibility.allowed,
+      saleBlockReason: eligibility.reason,
       player: {
         id: player.id,
         name: player.name,

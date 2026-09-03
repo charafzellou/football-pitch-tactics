@@ -27,6 +27,9 @@ interface MarketPlayer {
   /** What signing him costs in cash: `0` for a free agent. */
   fee: number
   teamName: string
+  /** Whether the selling club can release this player without breaching its squad floors. */
+  saleEligible: boolean
+  saleBlockReason: string | null
 }
 
 interface TransferOffer {
@@ -37,6 +40,8 @@ interface TransferOffer {
   fromTeamName: string
   fromTeamReputation: number
   premiumPercent: number
+  saleEligible: boolean
+  saleBlockReason: string | null
   player: {
     id: number
     name: string
@@ -109,6 +114,10 @@ function canAfford(player: MarketPlayer) {
   return player.freeAgent || player.fee <= availableBudget.value
 }
 
+function canPurchase(player: MarketPlayer) {
+  return canAfford(player) && (player.freeAgent || player.saleEligible)
+}
+
 const slotTabs = computed(() => {
   const counts: Record<string, number> = { ALL: searchResults.value.length, GK: 0, DF: 0, MF: 0, FW: 0 }
   for (const player of searchResults.value) {
@@ -148,6 +157,14 @@ function requestPurchase(player: MarketPlayer) {
     return
   }
 
+  if (!player.saleEligible) {
+    toast.warn({
+      title: `${player.teamName} cannot sell this player`,
+      description: player.saleBlockReason ?? 'The transfer would leave their squad below its minimum depth.',
+    })
+    return
+  }
+
   if (!canAfford(player)) {
     toast.warn({
       title: 'Not enough funds',
@@ -169,6 +186,14 @@ async function onSigned() {
 // ---------------------------------------------------------------------------
 
 async function answerOffer(offer: TransferOffer, accept: boolean) {
+  if (accept && !offer.saleEligible) {
+    toast.warn({
+      title: `${offer.player.name} is required`,
+      description: offer.saleBlockReason ?? 'This transfer would leave the squad below its minimum depth.',
+    })
+    return
+  }
+
   answeringOfferId.value = offer.id
 
   try {
@@ -337,6 +362,15 @@ watch(slotFilter, () => { /* purely reactive filter */ })
                     ? 'Lapses after this matchday'
                     : `${offer.roundsRemaining} matchday${offer.roundsRemaining === 1 ? '' : 's'} to decide` }}
                 </p>
+
+                <p
+                  v-if="!offer.saleEligible"
+                  class="flex items-start gap-1 text-[11px]"
+                  style="color: var(--app-player-booked)"
+                >
+                  <UIcon name="i-lucide-shield-alert" class="mt-0.5 size-3 shrink-0" />
+                  {{ offer.saleBlockReason }}
+                </p>
               </div>
             </div>
 
@@ -346,7 +380,8 @@ watch(slotFilter, () => { /* purely reactive filter */ })
                 label="Accept"
                 color="primary"
                 :loading="answeringOfferId === offer.id"
-                :disabled="answeringOfferId !== null"
+                :disabled="answeringOfferId !== null || !offer.saleEligible"
+                :title="offer.saleBlockReason ?? `Accept ${offer.fromTeamName}'s offer`"
                 @click="answerOffer(offer, true)"
               />
               <UButton
@@ -478,19 +513,30 @@ watch(slotFilter, () => { /* purely reactive filter */ })
                     </span>
                   </span>
                 </div>
+
+                <p
+                  v-if="!player.freeAgent && !player.saleEligible"
+                  class="flex items-start gap-1 text-[11px]"
+                  style="color: var(--app-player-booked)"
+                >
+                  <UIcon name="i-lucide-shield-alert" class="mt-0.5 size-3 shrink-0" />
+                  {{ player.saleBlockReason }}
+                </p>
               </div>
             </div>
 
             <div class="shrink-0">
               <UButton
                 :icon="player.freeAgent ? 'i-lucide-file-signature' : 'i-lucide-shopping-cart'"
-                :label="player.freeAgent ? 'Talk terms' : canAfford(player) ? 'Buy' : 'Too expensive'"
-                :color="canAfford(player) ? 'primary' : 'neutral'"
-                :variant="canAfford(player) ? 'solid' : 'soft'"
-                :disabled="!canAfford(player)"
+                :label="player.freeAgent ? 'Talk terms' : !player.saleEligible ? 'Unavailable' : canAfford(player) ? 'Buy' : 'Too expensive'"
+                :color="canPurchase(player) ? 'primary' : 'neutral'"
+                :variant="canPurchase(player) ? 'solid' : 'soft'"
+                :disabled="!canPurchase(player)"
                 :title="player.freeAgent
                   ? `Agree terms with ${player.name} — no fee`
-                  : canAfford(player)
+                  : !player.saleEligible
+                    ? player.saleBlockReason ?? `${player.teamName} cannot release this player`
+                    : canAfford(player)
                     ? `Sign ${player.name}`
                     : `You are ${formatMoneyCompact(player.fee - availableBudget)} short`"
                 class="w-full sm:w-auto"

@@ -12,6 +12,7 @@ import { computed, h, ref, watch } from 'vue'
 import { UBadge, UIcon } from '#components'
 import type { LineupSlot } from '#shared/lineup'
 import {
+  DEFAULT_TACTIC_NAME,
   LINEUP_SIZE,
   LINEUP_SLOT_ORDER,
   autoSelectLineup,
@@ -447,21 +448,19 @@ function onPitchDrop({ playerId }: { playerId: number; slot: LineupSlot }) {
 const lineupHydrated = ref(false)
 
 watch([tacticOptions, team], ([availableTactics, currentTeam]) => {
-  if (!availableTactics.length) return
+  // Initialise the formation and XI as one saved combination. Tactics can
+  // resolve before the team request; choosing the first option in that gap
+  // permanently left a saved 4-3-3 XI displayed against the default 4-4-2.
+  if (!availableTactics.length || !currentTeam || lineupHydrated.value) return
 
-  if (!selectedTactic.value) {
-    selectedTactic.value = availableTactics.find(t => t.name === currentTeam?.tactics)?.name
-      ?? availableTactics[0]?.name
-      ?? ''
-  }
+  selectedTactic.value = availableTactics.find(t => t.name === currentTeam.tactics)?.name
+    ?? availableTactics.find(t => t.name === DEFAULT_TACTIC_NAME)?.name
+    ?? availableTactics[0]?.name
+    ?? ''
 
-  // Restore the XI saved on the last visit, once, so the builder picks up
-  // where it left off instead of starting empty every time.
-  if (currentTeam && !lineupHydrated.value) {
-    lineupHydrated.value = true
-    const saved = parseLineup(currentTeam.lineup)
-    if (saved) selectedPlayers.value = saved
-  }
+  const saved = parseLineup(currentTeam.lineup)
+  if (saved) selectedPlayers.value = saved
+  lineupHydrated.value = true
 }, { immediate: true })
 
 /**
@@ -514,6 +513,7 @@ async function persistTeamSheet(): Promise<boolean> {
       method: 'PUT',
       body: { lineup: selectedPlayers.value },
     })
+    await refreshTeam()
     return true
   }
   catch (error) {
@@ -533,7 +533,6 @@ async function saveOnly() {
   saving.value = false
 
   if (ok) {
-    await refreshTeam()
     toast.success({ title: 'Team sheet saved', description: `${selectedTactic.value} with ${LINEUP_SIZE} players.` })
   }
 }

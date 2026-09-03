@@ -24,6 +24,7 @@ import { clubNews, game, players, teams, transferOffers } from '../db/schema'
 import { postLedger } from './finance'
 import { nudgeFans, transferReaction } from './board'
 import { postNews } from './news'
+import { evaluateTransferDeparture } from '#shared/squad-transfer'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -35,14 +36,6 @@ const MAX_PENDING_OFFERS = 4
 
 /** Chance per matchday that the market takes an interest at all. */
 const OFFER_CHANCE_PER_MATCHDAY = 0.45
-
-/**
- * A squad this size cannot be cut into. Exported because the board's forced
- * sales at stage 3 of insolvency respect the same floor — a crisis is allowed
- * to cost the manager their best player, not to leave them unable to field
- * eleven.
- */
-export const MIN_SQUAD_SIZE_TO_SELL = 16
 
 export interface TransferSettlement {
   playerId: number
@@ -77,13 +70,44 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
   const { playerId, fromTeamId, toTeamId, fee, season, round } = input
 
   const player = await tx.query.players.findFirst({ where: eq(players.id, playerId) })
-  const [from, to] = await Promise.all([
+  const [from, to, gameRow] = await Promise.all([
     tx.query.teams.findFirst({ where: eq(teams.id, fromTeamId) }),
     tx.query.teams.findFirst({ where: eq(teams.id, toTeamId) }),
+    tx.query.game.findFirst(),
   ])
 
   if (!player || !from || !to) {
     throw createError({ statusCode: 404, statusMessage: 'Transfer participants not found' })
+  }
+
+  if (player.teamId !== fromTeamId) {
+    throw createError({ statusCode: 400, statusMessage: 'That player no longer belongs to the selling club' })
+  }
+
+  if (player.retired) {
+    throw createError({ statusCode: 400, statusMessage: 'That player has retired' })
+  }
+
+  // A free agent already sits outside their former club's active squad, so
+  // signing one cannot reduce that club's depth. Every contracted departure,
+  // including one from an AI club, must leave a complete squad behind.
+  if (!player.freeAgent) {
+    const sellingSquad = await tx.query.players.findMany({
+      where: and(
+        eq(players.teamId, fromTeamId),
+        eq(players.retired, 0),
+        eq(players.freeAgent, 0),
+      ),
+      columns: { id: true, position: true },
+    })
+    const eligibility = evaluateTransferDeparture(sellingSquad, playerId)
+
+    if (!eligibility.allowed) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: eligibility.reason ?? 'This transfer would leave the selling club short of players',
+      })
+    }
   }
 
   await tx.update(players)
@@ -117,7 +141,6 @@ export async function settleTransfer(tx: Tx, input: TransferSettlement): Promise
   }
 
   // ---- Reactions, but only to the manager's own business -------------------
-  const gameRow = await tx.query.game.findFirst()
   let fanConfidence: number | null = null
 
   if (gameRow && (fromTeamId === gameRow.playerTeamId || toTeamId === gameRow.playerTeamId)) {
@@ -227,14 +250,11 @@ export async function generateTransferOffers(season: number, round: number): Pro
     ),
   })
 
-  // Selling out of a thin squad should be the manager's decision to seek, not
-  // one the market keeps pressing on them.
-  if (squad.length <= MIN_SQUAD_SIZE_TO_SELL)
-    return 0
-
   const alreadyWanted = new Set(pending.map(offer => offer.playerId))
   const targets = squad
     .filter(player => !alreadyWanted.has(player.id))
+    // Do not fill the inbox with offers the squad rules can never permit.
+    .filter(player => evaluateTransferDeparture(squad, player.id).allowed)
     .sort((a, b) => b.skillLevel - a.skillLevel)
     // Interest concentrates on the better half of the squad — nobody bids for
     // the twentieth-best player at the club.
@@ -311,6 +331,8 @@ export async function runTransferMarket(season: number, round: number): Promise<
 
 export interface OfferDecision {
   offerId: number
+  /** The manager may only answer bids addressed to their own club. */
+  teamId: number
   accept: boolean
   season: number
   round: number
@@ -318,7 +340,11 @@ export interface OfferDecision {
 
 export async function resolveOffer(decision: OfferDecision): Promise<TransferOutcome | null> {
   const offer = await db.query.transferOffers.findFirst({
-    where: and(eq(transferOffers.id, decision.offerId), eq(transferOffers.status, 'pending')),
+    where: and(
+      eq(transferOffers.id, decision.offerId),
+      eq(transferOffers.toTeamId, decision.teamId),
+      eq(transferOffers.status, 'pending'),
+    ),
   })
 
   if (!offer) {

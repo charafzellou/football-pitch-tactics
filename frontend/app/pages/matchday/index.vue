@@ -190,7 +190,7 @@ function revealUpTo(minute: number): { ownInjury: number | null } {
     const type = normalizeEventType(event.eventType)
 
     if (type === 'goal')
-      announceGoal(event)
+      announceGoal(event, playbackIndex.value)
     else if (type === 'yellow' || type === 'red')
       sfx.play('card')
     else if (type === 'substitution')
@@ -203,22 +203,27 @@ function revealUpTo(minute: number): { ownInjury: number | null } {
   return { ownInjury }
 }
 
-function announceGoal(event: MatchEvent) {
+function announceGoal(event: MatchEvent, revealedCount: number) {
   const isHome = event.teamId === homeTeamId.value
   const team = isHome ? homeTeam.value : awayTeam.value
   const isPlayerGoal = Boolean(playerSide.value && event.teamId === ownTeam.value?.id)
+  const stateAfterGoal = anchorState.value
+    ? applyEvents(anchorState.value, allEvents.value.slice(0, revealedCount), event.minute)
+    : null
 
   sfx.play(isPlayerGoal ? 'goal' : 'goalAgainst')
 
-  // The score is derived from `currentMinute`, and this runs mid-reveal, so
-  // count the goal in by hand rather than reading a value that hasn't caught up.
+  // Derive the score at this exact event rather than adding to the live HUD.
+  // The HUD already includes every event at `currentMinute`; adding one here
+  // double-counted the goal, while using the event slice also keeps skip-ahead
+  // playback correct when several goals are revealed in one pass.
   goalMoment.value = {
     key: ++goalKey,
     minute: event.minute,
     scorer: playerNameFor(event.playerId),
     teamName: team?.name ?? '—',
-    homeScore: homeScore.value + (isHome ? 1 : 0),
-    awayScore: awayScore.value + (isHome ? 0 : 1),
+    homeScore: stateAfterGoal?.home.score ?? homeScore.value,
+    awayScore: stateAfterGoal?.away.score ?? awayScore.value,
     isPlayerGoal,
   }
 }

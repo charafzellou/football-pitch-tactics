@@ -10,6 +10,7 @@
 import { computed, h, ref } from 'vue'
 import { UBadge } from '#components'
 import { LINEUP_SLOT_ORDER, normalizePosition, isAvailable } from '#shared/lineup'
+import { evaluateTransferDeparture } from '#shared/squad-transfer'
 import { developmentTrend } from '#shared/progression'
 import { averageOf, formatMoney, formatMoneyCompact } from '~/utils/format'
 import { sortableHeader, positionSortingFn } from '~/utils/table'
@@ -24,6 +25,14 @@ const selling = ref(false)
 const pendingSale = ref<SquadPlayer | null>(null)
 const detailPlayer = ref<SquadPlayer | null>(null)
 const negotiatingId = ref<number | null>(null)
+
+function saleEligibility(player: SquadPlayer) {
+  return evaluateTransferDeparture(squad.value, player.id)
+}
+
+const detailSaleEligibility = computed(() =>
+  detailPlayer.value ? saleEligibility(detailPlayer.value) : null,
+)
 
 const season = computed(() => gameState.value?.season ?? 1)
 
@@ -104,6 +113,15 @@ const balanceAfterSale = computed(() => {
 })
 
 function requestSale(player: SquadPlayer) {
+  const eligibility = saleEligibility(player)
+  if (!eligibility.allowed) {
+    toast.warn({
+      title: `${player.name} is required`,
+      description: eligibility.reason ?? 'This transfer would leave the squad below its minimum depth.',
+    })
+    return
+  }
+
   if (!settings.confirmSelling) {
     void completeSale(player)
     return
@@ -253,6 +271,7 @@ const columns = [
     header: 'Actions',
     cell: ({ row }: { row: any }) => {
       const player = row.original as SquadPlayer
+      const eligibility = saleEligibility(player)
 
       return h('div', { class: 'flex items-center gap-1.5' }, [
         h(resolveComponent('UButton'), {
@@ -264,14 +283,21 @@ const columns = [
           title: `Open contract talks with ${player.name}`,
           onClick: () => { negotiatingId.value = player.id },
         }),
-        h(resolveComponent('UButton'), {
-          color: 'error',
-          variant: 'soft',
-          size: 'xs',
-          icon: 'i-lucide-tag',
-          label: 'Sell',
-          onClick: () => requestSale(player),
-        }),
+        h('span', {
+          class: 'inline-flex',
+          title: eligibility.reason ?? `Sell ${player.name}`,
+        }, [
+          h(resolveComponent('UButton'), {
+            color: 'error',
+            variant: 'soft',
+            size: 'xs',
+            icon: 'i-lucide-tag',
+            label: 'Sell',
+            disabled: !eligibility.allowed,
+            'aria-label': eligibility.reason ?? `Sell ${player.name}`,
+            onClick: () => requestSale(player),
+          }),
+        ]),
       ])
     },
   },
@@ -530,6 +556,15 @@ const columns = [
             </div>
           </dl>
 
+          <p
+            v-if="detailSaleEligibility && !detailSaleEligibility.allowed"
+            class="mt-4 flex items-start gap-2 rounded-lg p-2 text-xs"
+            style="background-color: var(--app-badge-warning-bg); color: var(--app-badge-warning-text)"
+          >
+            <UIcon name="i-lucide-shield-alert" class="mt-0.5 size-3.5 shrink-0" />
+            {{ detailSaleEligibility.reason }}
+          </p>
+
           <div class="mt-5 flex justify-end gap-2">
             <UButton label="Close" color="neutral" variant="soft" @click="() => { detailPlayer = null }" />
             <UButton
@@ -542,6 +577,8 @@ const columns = [
               label="Sell player"
               icon="i-lucide-tag"
               color="error"
+              :disabled="!detailSaleEligibility?.allowed"
+              :title="detailSaleEligibility?.reason ?? `Sell ${detailPlayer.name}`"
               @click="() => { const p = detailPlayer; detailPlayer = null; if (p) requestSale(p) }"
             />
           </div>

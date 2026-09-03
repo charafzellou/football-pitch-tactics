@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
 
   const outcome = await resolveOffer({
     offerId,
+    teamId: gameState.playerTeamId,
     accept: action === 'accept',
     season: gameState.season,
     round: status?.round ?? 0,

@@ -7,9 +7,10 @@
  * relegation) with a legend, and each club carries its recent form.
  */
 import { computed, ref } from 'vue'
-import { recentForm } from '~/utils/results'
+import type { FormResult } from '~/utils/results'
 
 interface StandingRow {
+  teamId: number
   teamName: string
   played: number
   wins: number
@@ -19,6 +20,7 @@ interface StandingRow {
   goalsAgainst: number
   goalDifference: number
   points: number
+  form: FormResult[]
 }
 
 const { team } = useGameContext()
@@ -37,24 +39,6 @@ watch(() => team.value?.leagueId, async (leagueId) => {
   }
   finally {
     loading.value = false
-  }
-}, { immediate: true })
-
-const { data: fixtures } = useAsyncData(
-  'standings-fixtures',
-  () => $fetch<any[]>('/api/schedule?includePlayed=true'),
-  { default: () => [] as any[] },
-)
-
-const teamIds = ref<Record<string, number>>({})
-watch(() => team.value?.leagueId, async (leagueId) => {
-  if (!leagueId) return
-  try {
-    const teams = await $fetch<{ id: number; name: string }[]>(`/api/teams?leagueId=${leagueId}`)
-    teamIds.value = Object.fromEntries(teams.map(t => [t.name, t.id]))
-  }
-  catch {
-    teamIds.value = {}
   }
 }, { immediate: true })
 
@@ -80,7 +64,6 @@ const ZONE_CLASS: Record<string, string> = {
 const rows = computed(() =>
   standings.value.map((row, index) => {
     const rank = index + 1
-    const id = teamIds.value[row.teamName]
 
     return {
       ...row,
@@ -88,7 +71,6 @@ const rows = computed(() =>
       zone: zoneOf(rank, standings.value.length),
       isOwn: row.teamName === team.value?.name,
       behind: leader.value - row.points,
-      form: id ? recentForm(fixtures.value ?? [], id) : [],
     }
   }),
 )

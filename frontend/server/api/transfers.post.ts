@@ -205,6 +205,10 @@ export default defineEventHandler(async (event) => {
   // -------------------------------------------------------------------------
   // Selling to the best-fitting AI buyer
   // -------------------------------------------------------------------------
+  if (player.teamId !== gameState.playerTeamId || player.freeAgent) {
+    throw createError({ statusCode: 400, statusMessage: 'You can only sell an active player from your own squad' })
+  }
+
   const sellerTeam = await db.query.teams.findFirst({ where: eq(teams.id, player.teamId) })
   if (!sellerTeam) throw createError({ statusCode: 404, statusMessage: 'Seller team not found' })
 

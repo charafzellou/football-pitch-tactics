@@ -31,9 +31,10 @@ import { and, eq, ne } from 'drizzle-orm'
 import { db } from '../db'
 import { game, players, teams } from '../db/schema'
 import { nudgeFans } from './board'
-import { MIN_SQUAD_SIZE_TO_SELL, settleTransfer } from './market'
+import { settleTransfer } from './market'
 import { postNews } from './news'
 import type { NewsItem } from './news'
+import { evaluateTransferDeparture } from '#shared/squad-transfer'
 
 /** Consecutive overdrawn matchdays before the board stops the club trading. */
 export const EMBARGO_ROUNDS = 3
@@ -175,10 +176,9 @@ export async function settleInsolvency(input: {
 /**
  * The board sells the most valuable player it is allowed to sell.
  *
- * "Allowed" is the squad floor: below sixteen contracted players there is
- * nothing to sell without leaving the manager unable to name a bench, so the
- * board complains instead. That is a real outcome — a club can be too broke to
- * be saved by selling.
+ * "Allowed" means the club retains the universal squad-size and positional
+ * floors. If nobody can leave, the board complains instead. That is a real
+ * outcome — a club can be too broke to be saved by selling.
  */
 async function forceSale(
   teamId: number,
@@ -190,20 +190,22 @@ async function forceSale(
     where: and(eq(players.teamId, teamId), eq(players.retired, 0), eq(players.freeAgent, 0)),
   })
 
-  if (squad.length <= MIN_SQUAD_SIZE_TO_SELL) {
+  const saleable = squad.filter(player => evaluateTransferDeparture(squad, player.id).allowed)
+
+  if (!saleable.length) {
     news.push({
       season,
       round,
       category: 'finance',
       tone: 'negative',
       headline: 'There is nothing left to sell',
-      body: `The squad is down to ${squad.length}. The board cannot raise money without leaving you `
-        + 'unable to field a side.',
+      body: 'The squad is at its minimum depth. The board cannot raise money without leaving you '
+        + 'unable to field a complete squad.',
     })
     return null
   }
 
-  const target = [...squad].sort((a, b) => b.marketValue - a.marketValue)[0]
+  const target = [...saleable].sort((a, b) => b.marketValue - a.marketValue)[0]
   if (!target)
     return null
 

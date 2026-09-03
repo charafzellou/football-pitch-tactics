@@ -1,6 +1,7 @@
 import { and, eq, like, ne, or } from 'drizzle-orm'
 import { db } from '../../../server/db'
 import { players, teams } from '../../../server/db/schema'
+import { evaluateTransferDeparture } from '#shared/squad-transfer'
 
 /**
  * The transfer market.
@@ -27,20 +28,39 @@ export default defineEventHandler(async (event) => {
   if (query)
     filters.push(like(players.name, `%${query}%`))
 
-  const [searchResults, allTeams] = await Promise.all([
+  const [searchResults, allTeams, activePlayers] = await Promise.all([
     db.query.players.findMany({ where: and(...filters) }),
     db.query.teams.findMany({ columns: { id: true, name: true, reputation: true } }),
+    db.query.players.findMany({
+      where: and(eq(players.retired, 0), eq(players.freeAgent, 0)),
+      columns: { id: true, teamId: true, position: true },
+    }),
   ])
 
   const teamById = new Map(allTeams.map(team => [team.id, team]))
+  const squadByTeam = new Map<number, typeof activePlayers>()
+  for (const player of activePlayers) {
+    const squad = squadByTeam.get(player.teamId) ?? []
+    squad.push(player)
+    squadByTeam.set(player.teamId, squad)
+  }
 
-  return searchResults.map(player => ({
-    ...player,
-    freeAgent: player.freeAgent === 1,
-    /** What it would cost to sign them. A free agent costs nothing but wages. */
-    fee: player.freeAgent === 1 ? 0 : player.marketValue,
-    /** For a free agent this reads as the club that released them. */
-    teamName: teamById.get(player.teamId)?.name ?? 'Unknown',
-    teamReputation: teamById.get(player.teamId)?.reputation ?? 50,
-  }))
+  return searchResults.map((player) => {
+    const freeAgent = player.freeAgent === 1
+    const eligibility = freeAgent
+      ? { allowed: true, reason: null }
+      : evaluateTransferDeparture(squadByTeam.get(player.teamId) ?? [], player.id)
+
+    return {
+      ...player,
+      freeAgent,
+      /** What it would cost to sign them. A free agent costs nothing but wages. */
+      fee: freeAgent ? 0 : player.marketValue,
+      /** For a free agent this reads as the club that released them. */
+      teamName: teamById.get(player.teamId)?.name ?? 'Unknown',
+      teamReputation: teamById.get(player.teamId)?.reputation ?? 50,
+      saleEligible: eligibility.allowed,
+      saleBlockReason: eligibility.reason,
+    }
+  })
 })
