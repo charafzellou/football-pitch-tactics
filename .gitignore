@@ -4,5 +4,5 @@
 !.env.example
 
 # Database files
-*.sqlite
+*.sqlite*
 *.db
