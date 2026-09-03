@@ -108,6 +108,8 @@ This writes `teams.tactics = '4-3-3'` and `teams.lineup = "[12,45,78,...]"`, so 
 
 A saved lineup is only ever used if it's still valid at read time — see [Lineup Resolution and Auto-Select](#lineup-resolution-and-auto-select) below.
 
+The Dashboard waits for both the saved team record and the tactic catalogue before hydrating the builder, then restores the tactic and XI together. It refreshes the shared team cache after either save action, so returning from Matchday cannot pair a saved XI with a stale/default formation. The pre-match combination remains the next match's default; substitutions, injuries, red cards and formation changes made during the match stay specific to that match.
+
 ---
 
 ## AI Team Tactics
@@ -145,6 +147,7 @@ Rules, enforced identically client-side (`substitutionError()`, greying out ille
 - A player who was already injured before kickoff never appears on the in-match bench either — `kickOff()` filters them out the same way `autoSelectLineup` does before the match.
 - An injury **during** the match is itself treated as a substitution waiting to happen: the injured player counts as a legal "outgoing" choice (they're already off the pitch) until someone comes on for them, or the manager chooses to play on short — see [Injury Pauses](matchday.md#injury-pauses).
 - A formation change takes effect from the next simulated minute onward — it does not retroactively change anything already played, and (like the pre-match tactic picker) does not force a lineup reshuffle to fit new slot counts; `calculateTeamStats` just applies the new tactic's modifiers to whoever is currently on the pitch.
+- In-match substitutions and formation changes are stored in the live match state only. Full time does not overwrite the saved pre-match formation or starting XI with a potentially incomplete final on-pitch side.
 
 **AI-controlled teams manage their own bench** — see [match-engine.md](../technical/match-engine.md#cpu-substitutions) — but never change formation mid-match. An injury is the one thing that makes them act outside their scheduled review minutes: they replace an injured player immediately rather than waiting.
 

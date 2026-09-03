@@ -246,7 +246,7 @@ The consequences here key on a fact instead — `teams.bank_balance` is below ze
 
 Recovery steps the stage **down by one per solvent matchday** rather than clearing it, so climbing out of a board intervention takes three matchdays in the black — long enough that a one-off windfall cannot cancel a crisis half a season in the making.
 
-A forced sale respects `MIN_SQUAD_SIZE_TO_SELL` (16): below that the board complains instead. That is a real outcome — **a club can be too broke to be saved by selling.**
+A forced sale uses the same universal transfer floors as every other departure: the club must retain at least 16 active players, including 2 goalkeepers, 5 defenders, 5 midfielders, and 3 attackers. The board chooses the most valuable eligible player; if nobody can leave safely, it complains instead. That is a real outcome — **a club can be too broke to be saved by selling.**
 
 The existing negative-balance term in `boardConfidenceTarget()` sits underneath all of this untouched, so sustained insolvency already feeds the confidence streak and the dismissal path with no extra code.
 

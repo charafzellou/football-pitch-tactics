@@ -69,6 +69,8 @@ const { state, events } = simulateSegment(home, away, kickOff(home, away), MATCH
 
 **Why this exists:** before it, only the player's own fixtures were ever simulated — 2 of 760 in a fresh save. Every other club sat on nil, so the league table was fiction and a season could never complete. Playing one match now resolves the full round of 20 (~700ms).
 
+The same completed AI fixtures feed each club's form guide. `GET /api/standings` combines `computeStandings()` with the batched `recentForm()` helper and returns up to five results per club, oldest first; a club with no completed fixtures receives an empty array. This is separate from `GET /api/schedule`, which remains deliberately scoped to the player's club.
+
 ### Shared fitness settlement
 
 `settleMatchFitness(tx, state)` was extracted out of `POST /api/match/finish` so the player's match and every AI match settle through the identical path. If they diverged, only the human's squad would tire.
@@ -180,7 +182,7 @@ Stamina drains faster than the flat `+10` recovered per match, so a starter fini
 | `GET /api/season/history` | Past champions from `season_summary` |
 | `GET /api/board` | Confidence meters, the board's target, the thresholds, and the news feed |
 
-`GET /api/standings` now takes the season from the active save instead of hardcoding `season = 1`, which would otherwise have kept showing the first season's table forever.
+`GET /api/standings` takes the season from the active save instead of hardcoding `season = 1`, which would otherwise have kept showing the first season's table forever. Each row also includes `teamId` and league-wide recent `form`, derived from the same played fixtures as the table.
 
 ---
 

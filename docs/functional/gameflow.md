@@ -80,6 +80,7 @@ The hub page shows:
 
 ### Club Status
 - **League position** — derived from `GET /api/standings?leagueId`.
+- **Recent form** — the managed club's last five completed league results.
 - **Bank balance** — from `GET /api/team/:playerTeamId`.
 
 ### Next Match
@@ -93,7 +94,9 @@ The player must select 11 players matching their chosen formation before they ca
 1. Pick a formation from the dropdown (calls `GET /api/tactics`).
 2. Click players in the squad table to add/remove them.
 3. The pitch visualisation updates in real-time.
-4. The **Go to Matchday** button is the gated action — it calls `PUT /api/team/:id/tactics` to save the formation, then navigates to `/matchday`.
+4. The **Go to Matchday** button is the gated action — it saves the formation and XI through `PUT /api/team/:id/tactics` and `PUT /api/team/:id/lineup`, refreshes the shared team data, then navigates to `/matchday`.
+
+On return visits, the builder waits until both the saved team record and the tactic catalogue are available, then restores the saved formation and XI as one combination. If no saved tactic matches an available option, it falls back to `4-4-2`. Saving refreshes the shared team cache before navigation, so Matchday and the next Dashboard visit see the same team sheet.
 
 > **Lineup legality:** The lineup is valid only when exactly 11 players are selected AND all position slot counts match the formation exactly. Attempting to proceed with an invalid lineup shows a toast and aborts navigation.
 
@@ -111,8 +114,8 @@ The player can freely navigate to:
 | Page | Purpose |
 |---|---|
 | `/game/team` | View squad, sell players |
-| `/game/schedule` | See all past and upcoming fixtures |
-| `/game/standings` | Check league table |
+| `/game/schedule` | See the managed club's past and upcoming fixtures |
+| `/game/standings` | Check the full league table and every club's last-five form |
 | `/game/transfers` | Search and buy players |
 | `/game/finance` | Profit and loss, wage pressure, debt |
 | `/game/finance/projection` | The four-season forecast and the budgets it recommends |
@@ -137,7 +140,8 @@ See [matchday.md](matchday.md) for the full breakdown. Summary:
 After the match:
 - `game.currentDate` is advanced past the match date.
 - The next call to `GET /api/schedule` shows the following fixture.
-- Standings update automatically (they are computed on the fly from `matches`).
+- Standings and every club's form update automatically from all played league fixtures, including the AI-versus-AI matches resolved for the round.
+- The saved pre-match formation and starting XI remain selected for the next fixture. Substitutions, red cards, injuries, and formation changes in the live match state are not copied back into `teams.tactics` or `teams.lineup` at full time.
 
 ---
 
@@ -238,11 +242,11 @@ Recomputed every matchday by `settleInsolvency()`, immediately after the board h
 | 2 — Transfer embargo | Three consecutive matchdays overdrawn | No buying, no free-agent signings, no contract offer above a player's current wage. −5 fan confidence |
 | 3 — Board intervention | Eight matchdays overdrawn, or worse than −€15M | The board sells the most valuable saleable player at 80% of his valuation, without consulting the manager, and does it again every matchday until the club is solvent. −8 fan confidence |
 
-**Selling is never blocked.** It is how a club gets out of an embargo, and blocking it would make stage 2 a trap rather than a punishment.
+**An embargo never blocks selling.** It is how a club gets out of stage 2, but the universal squad floors still apply: no transfer may leave a club without 16 active players or the required positional depth.
 
 **Recovery is not instant.** Each solvent matchday steps the stage down by one, so climbing out of a board intervention takes three matchdays in the black — long enough that a one-off windfall cannot cancel a crisis half a season in the making.
 
-**The board will not sell into a squad that cannot be fielded.** Below sixteen contracted players it stops and complains instead. That is the worst outcome in the game: a club too broke to be saved by selling.
+**The board will not sell into a squad that cannot be fielded.** It stops when no departure can preserve 16 active players, 2 goalkeepers, 5 defenders, 5 midfielders, and 3 attackers. That is the worst outcome in the game: a club too broke to be saved by selling.
 
 > **This layers under the board rather than beside it.** `boardConfidenceTarget()` has always docked confidence for a negative balance, so sustained insolvency already feeds `confidenceStreak` and the dismissal path in section 8 — with no extra code. Going broke does not have its own ending; it routes into the one that already existed.
 

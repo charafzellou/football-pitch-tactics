@@ -84,10 +84,11 @@ Clubs that compete in a league. Both player-controlled and AI-controlled teams s
 
 **Notes:**
 - `bank_balance` is seeded twice: an initial random 1,000,000–50,000,000 at insert, then **overwritten** by the economy pass with `startingBalanceFor(reputation, capacity)` once every squad exists (reputation is partly a club's rank within its league, so it cannot be known until then).
-- `tactics` is `NULL` until the player (or simulation) sets one; the match engine falls back to `DEFAULT_TACTIC_NAME` (4-4-2) when `NULL`.
+- `tactics` is `NULL` until the player (or simulation) sets one; the match engine falls back to `DEFAULT_TACTIC_NAME` (4-4-2) when `NULL`. A saved value persists between matchdays.
 - The seven venture columns (`perimeter_level` through `pitch_condition`) exist on **every** club but are only ever read for the manager's. CPU clubs take a single blended `sponsorship` credit instead of itemised streams, and that credit is calibrated to net the same — see [economy.md](economy.md#the-commercial-pool).
 - `stadium_base_name` is populated at seed from `stadiumNameFor()` and is what `expireDeals()` restores `stadium_name` to when a naming-rights deal runs out.
-- `lineup` is `NULL` until the player saves an XI via `PUT /api/team/:id/lineup`. AI-controlled teams never set it, so they are always auto-selected. A saved lineup is only honoured if it still resolves to exactly 11 valid squad members at read time (e.g. a sold player invalidates it) — see [match-engine.md](match-engine.md) for the resolution logic shared between the client and the engine.
+- `lineup` is `NULL` until the player saves an XI via `PUT /api/team/:id/lineup`. AI-controlled teams never set it, so they are always auto-selected. A saved lineup persists between matchdays and is only honoured if it still resolves to exactly 11 valid squad members at read time (e.g. a sold or newly injured player invalidates it) — see [match-engine.md](match-engine.md) for the resolution logic shared between the client and the engine.
+- In-match substitutions and tactic changes update `matches.state`, not these two columns. Finishing a match clears the live state without overwriting the saved pre-match combination. A season rollover clears `lineup` because retirements and departures can invalidate player ids; it does not reset a valid saved tactic.
 
 ---
 
@@ -225,6 +226,8 @@ One row per fixture in the season schedule.
 | `state` | TEXT | nullable | Live `MatchState` JSON (see `shared/match-state.ts`) while the match is paused mid-way. `NULL` when not started or already finished — same convention as `teams.lineup`'s "nothing saved" |
 
 **Determining result:** A match with `home_score IS NOT NULL` (equivalently `played = 1`) is considered fully played. **A match with `state IS NOT NULL` and `played = 0` is in progress** — paused between `POST /api/match/start` and full time. `POST /api/match/start`'s fallback (no `matchId` given) prefers an in-progress match over the next unplayed one by date, so a paused game isn't skipped past.
+
+Current standings and recent form are both derived from these played rows. The standings endpoint reads every club's fixtures in the requested league and season, including headless AI results; recent form is the last five results in round order, returned oldest first. There is no standings-form column or separate persistence table.
 
 ---
 

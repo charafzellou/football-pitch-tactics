@@ -81,7 +81,7 @@ football-pitch-tactics/
 | `tactics.ts` | The four formations and their modifiers |
 | `calendar.ts` | Round-robin pairings and round-based fixture dates |
 | `matchday-ai.ts` | Headless AI-vs-AI resolution, shared fitness settlement |
-| `standings.ts` | League table computation |
+| `standings.ts` | League table computation from played fixtures |
 | `season.ts` | Season completion detection and the rollover transaction |
 | `progression.ts` | Ageing, development, retirement, youth intake, valuation |
 | `economy.ts` | Reputation, stadium, wages, ticketing, attendance, prize money, the commercial pool and its parts, running costs, capital prices |
@@ -97,7 +97,7 @@ football-pitch-tactics/
 | `board.ts` | Board and fan confidence, expectations, dismissal |
 | `news.ts` | The club news feed |
 | `save.ts` | Save lifecycle guards — `requireActiveManager()` |
-| `results-server.ts` | Server-side W/D/L helpers |
+| `results-server.ts` | Batched server-side last-five W/D/L form for league clubs |
 
 **`shared/`** exists so the exact same rules run on both sides of the wire: the match engine (server) uses `shared/lineup.ts` to pick a CPU team's best XI, and the Dashboard lineup builder (client) imports the same module for position normalisation and slot counts; `shared/match-state.ts` does the same for live match state, so the engine, the API's rewind and the Matchday UI can never disagree about who is on the pitch. `shared/finance.ts` does it for money: the server totals ledger streams and the finance pages label them, and two copies of that map is exactly how "Commercial" comes to mean one thing on the overview and another on the projection. Nuxt exposes this directory automatically via the `#shared` import alias. See [match-engine.md](match-engine.md), [tactics.md](../functional/tactics.md) and [economy.md](economy.md).
 
@@ -111,6 +111,8 @@ football-pitch-tactics/
 4. The **page component** mounts and calls `useFetch()`/`useAsyncData()` hooks which send `GET` requests to Nitro API routes under `/api/`.
 5. **Nitro handler** imports `db` from `server/db/index.ts` (a Drizzle client pointing at `db.sqlite`), runs the query, and returns JSON. Routes that mutate the world first call `requireActiveManager()`, which `403`s on a dismissed save.
 6. The page renders with the data.
+
+Two read paths are intentionally different. `GET /api/schedule` is scoped to the managed club and drives its Dashboard and Matchday navigation. `GET /api/standings` composes `computeStandings()` with `recentForm()` over every played fixture in the requested league and season, including headless AI results, and returns `teamId` plus `form` on each row. Form is therefore derived data; it does not require a schema column or migration.
 
 ---
 

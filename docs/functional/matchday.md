@@ -102,6 +102,8 @@ When `currentMinute` reaches 90 (`tickOnce` detects it):
 - `isFinished = true` only once that call succeeds, and the **End Match** button appears — navigating to `/game`, or to `/game/dismissed` if this result was the one that cost the manager their job (`board.dismissed` in the response, which also raises a toast at full time).
 - If it fails, the result is *not* silently dropped: a toast explains, and a **Retry saving result** button appears in place of End Match.
 
+Full time does not write the final on-pitch formation or personnel back to the club. The saved pre-match tactic and starting XI remain the default for the next fixture; substitutions, red cards, injuries, and tactical changes affect only the running match. Recorded events remain in match history, while the temporary `matches.state` snapshot is cleared after the result is committed.
+
 > **Nothing is committed until the clock gets here.** The second half is simulated in one go the moment the manager leaves half time, ~45 seconds of playback before minute 90 arrives — and a pause anywhere in that stretch rewinds and re-simulates the rest, so the "result" is provisional the whole time. Finalising at simulation time (as an earlier version did, inside `advance`) nulled `matches.state` for the entire second half, which made every mid-second-half substitution fail with `400 Match has not started`.
 
 ---
@@ -194,12 +196,7 @@ Chips are styled with `.app-filter-chip` / `.app-filter-chip--active`. Because G
 
 ## Score Display
 
-The live score is shown in large `app-gradient-text` (emerald → sky). It updates immediately when a goal event is processed in `tickOnce()`:
-
-```
-homeScore += 1   when event.teamId === homeTeam.id && event.eventType === 'goal'
-awayScore += 1   when event.teamId === awayTeam.id && event.eventType === 'goal'
-```
+The live score is shown in large `app-gradient-text` (emerald → sky). Both the HUD and goal celebration are derived from `applyEvents()` rather than incremented separately. The celebration folds only the events revealed through that specific goal, so it shows the score immediately after the goal even when several events are revealed at once by skip-ahead playback.
 
 ---
 

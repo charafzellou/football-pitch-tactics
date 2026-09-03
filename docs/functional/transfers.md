@@ -25,6 +25,8 @@ The player clicks **Sell** on any player in their squad table (`/game/team`).
 
 ### 2. AI Buyer Selection (`action: 'sell'`)
 
+Before looking for a buyer, the server verifies that the player belongs to the manager's active squad and that selling him would preserve the universal squad floors described in [Squad floors](#squad-floors). An ineligible **Sell** control is disabled and explains which minimum would be breached.
+
 The server finds the best AI buyer through a multi-step filter:
 
 **Step 1 — Candidate pool:**
@@ -87,6 +89,9 @@ An `AppConfirmModal` showing the fee and the balance after. (This replaced a nat
 ### 3. Validation (`action: 'buy'`)
 - Player must not already belong to the player's team.
 - `playerTeam.bankBalance >= player.marketValue`.
+- The selling club must retain the universal squad floors after the player leaves.
+
+An AI club is not exempt from the depth rules. Search results therefore include `saleEligible` and `saleBlockReason`; an unavailable player remains visible, but the **Buy** control is disabled with the reason.
 
 ### 4. Transaction (DB)
 
@@ -139,7 +144,7 @@ POST /api/transfers { playerId, action: 'sign', wage, seasons }
 - Excludes the player's own squad, **except free agents**: a released player keeps his old `team_id`, so a plain "not at your club" filter would make re-signing someone you released impossible.
 - Returns everyone matching when the query is empty.
 
-Each result is enriched with `teamName`, `teamReputation`, `freeAgent` (boolean) and `fee` — `0` for a free agent, `marketValue` otherwise. The page reads all four: a free agent carries a badge, shows "No fee — wages only" in place of a price and budget bar, and opens contract talks instead of a purchase confirmation.
+Each result is enriched with `teamName`, `teamReputation`, `freeAgent` (boolean), `fee`, `saleEligible`, and `saleBlockReason`. `fee` is `0` for a free agent and `marketValue` otherwise. A free agent carries a badge, shows "No fee — wages only" in place of a price and budget bar, and opens contract talks instead of a purchase confirmation. A contracted player whose club cannot release him remains visible with an unavailable action and the blocking squad-floor reason.
 
 The search input is debounced (350 ms) client-side. No minimum character threshold — an empty string returns everyone.
 
@@ -151,13 +156,27 @@ Available budget is shown at the top of the Transfers page. It is fetched via `u
 
 ---
 
-## Sell Limitations
+## Squad floors
+
+Every transfer of a contracted player — whether the selling club is controlled by the manager or the AI — must leave the seller with:
+
+- At least **16 active players** in total.
+- At least **2 goalkeepers**.
+- At least **5 defenders**.
+- At least **5 midfielders**.
+- At least **3 attackers**.
+
+The calculation includes injured players because they remain contracted members of the active squad. Retired and released/free-agent records do not count. The check is repeated inside the same transaction that moves the player and posts the ledger entries, so a stale page or direct API request cannot bypass it. A club already below any floor cannot sell until it repairs every shortfall.
+
+Free-agent signings bypass the departure check: the player had already left his previous club's active squad when his contract expired.
+
+## Sell limitations
 
 | Constraint | Enforced by |
 |---|---|
 | No AI buyer found | Server returns `400 "No team can afford this player"` |
-| Player doesn't belong to player team | Not enforced on sell — server sells from player's team by looking up `player.teamId` |
-| Selling down to 0 players | Not prevented — the player can sell their entire squad |
+| Manual sale targets another club's player | Server returns `400`; **Sell** only applies to the manager's active squad |
+| Transfer breaches a squad floor | Server returns `400` with every breached minimum and the resulting count |
 | Manager has been dismissed | `requireActiveManager()` returns `403 "You were dismissed. This save is closed."` |
 
 ---
@@ -177,8 +196,8 @@ Generation is deliberately restrained — a club fielding four bids a week would
 | Chance of any interest per matchday | 45% |
 | New bids per matchday | At most 1 |
 | Pending bids at once | At most 4 |
-| Squad floor below which nobody bids | 16 players |
-| Who is targeted | A random pick from the better half of the squad, never someone already bid for |
+| Squad floor | No bid targets a player whose departure would breach the total or positional floors |
+| Who is targeted | A random sale-eligible pick from the better half of the squad, never someone already bid for |
 | Who bids | Any club that can afford the fee and whose best player is no more than 4 skill above the target — a club does not bid for someone who would not get into its side |
 | Fee | `marketValue × (1 + premium)`, premium `0.08 + reputation × 0.30 + random(0, 0.12)` |
 
@@ -190,7 +209,7 @@ Bids are announced in the news feed, and are also cancelled implicitly: acceptin
 POST /api/transfers/offers { offerId, action: 'accept' | 'reject' }
 ```
 
-`GET /api/transfers/offers` lists what is on the table — the player, the bidding club, the fee, how far above his valuation it sits, and how many matchdays remain to decide. The transfers page renders it as an inbox above the market, with Accept / Reject per bid. A bid whose player has since retired or moved on is filtered out rather than shown as answerable.
+`GET /api/transfers/offers` lists what is on the table — the player, the bidding club, the fee, how far above his valuation it sits, how many matchdays remain to decide, and whether the squad can still release him. The transfers page renders it as an inbox above the market, with Accept / Reject per bid. A bid whose player has since retired or moved on is filtered out rather than shown as answerable. If another departure has made a once-valid offer unsafe, **Accept** is disabled with the current squad-floor reason; rejecting it remains possible.
 
 Accepting settles through the same `settleTransfer()` as a manual sale, so the ledger pair, the fan reaction and the news item are identical however the player left. The fee also becomes the player's new `market_value` — a club that just paid it has repriced him.
 

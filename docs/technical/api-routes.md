@@ -150,7 +150,7 @@ Updates the selected tactic for a team.
 
 **Errors:** `400` if `id` is missing.
 
-**Notes:** Called immediately before navigating to `/matchday` so the simulation uses the player's latest formation choice. Called together with `PUT /api/team/:id/lineup` — see below.
+**Notes:** Called immediately before navigating to `/matchday` so the simulation uses the player's latest formation choice. Called together with `PUT /api/team/:id/lineup` — see below. After both requests succeed, the Dashboard refreshes the shared team cache before navigation so subsequent pages cannot restore stale tactic data.
 
 ---
 
@@ -176,7 +176,7 @@ Must resolve to **exactly 11 distinct player ids** that belong to the team's cur
 
 **Errors:** `400` if `id` is missing, or if the (non-empty) payload does not resolve to exactly 11 valid, distinct player ids from the team's squad (e.g. wrong count, a player from another team, duplicates that collapse below 11 after de-duplication).
 
-**Notes:** Called immediately after `PUT /api/team/:id/tactics` when the player clicks "Go to Matchday". This is what makes the Dashboard's lineup builder selection actually affect the match simulation — previously the engine always picked its own best XI regardless of what the player chose. See [tactics.md](../functional/tactics.md#saving-tactics-and-lineup).
+**Notes:** Called immediately after `PUT /api/team/:id/tactics` when the player clicks "Go to Matchday". This is what makes the Dashboard's lineup builder selection actually affect the match simulation — previously the engine always picked its own best XI regardless of what the player chose. The saved XI persists between matchdays; full time never replaces it with the final on-pitch side. See [tactics.md](../functional/tactics.md#saving-tactics-and-lineup).
 
 ---
 
@@ -667,20 +667,23 @@ Applies the player's substitutions and/or a formation change at a pause.
 ## Standings Endpoint
 
 ### `GET /api/standings?leagueId=<number>`
-Computes current league standings from played matches.
+Computes current league standings and recent form from played matches.
 
 **Query params:**
 - `leagueId` (required) — numeric league ID
+- `season` (optional) — defaults to the active save's current season
 
-**Calculation:** For every team in the league, counts all played matches in `season = 1` and aggregates W/D/L/GF/GA/GD/Pts.
+**Calculation:** For every team in the league, counts all played matches in the requested/current season and aggregates W/D/L/GF/GA/GD/Pts. `form` contains up to the last five league results, oldest first, including fixtures resolved headlessly for AI clubs.
 
-**Response:** Array sorted by `points DESC`, then `goalDifference DESC`.
+**Response:** Array sorted by `points DESC`, then `goalDifference DESC`, `goalsFor DESC`, and `teamName ASC`.
 ```json
 [
-  { "teamName": "Arsenal", "played": 12, "wins": 9, "draws": 2, "losses": 1, "goalsFor": 27, "goalsAgainst": 9, "goalDifference": 18, "points": 29 },
+  { "teamId": 3, "teamName": "Arsenal", "played": 12, "wins": 9, "draws": 2, "losses": 1, "goalsFor": 27, "goalsAgainst": 9, "goalDifference": 18, "points": 29, "form": ["W", "D", "W", "W", "L"] },
   ...
 ]
 ```
+
+The Standings page reads this form directly. `GET /api/schedule` remains the managed club's fixture list and is not used to infer other clubs' form.
 
 **Errors:** `400` if `leagueId` missing.
 
@@ -698,9 +701,9 @@ The transfer market.
 - `retired = 0` — a retired player must never appear on the market.
 - Not at the player's own club, **unless they are a free agent**. A released player keeps his old `team_id`, so a plain "not at your club" filter would make re-signing someone you released impossible — which is the whole point of letting a contract lapse.
 
-**Response:** `Array<Player & { freeAgent: boolean; fee: number; teamName: string; teamReputation: number }>`. `fee` is `0` for a free agent and `marketValue` otherwise; for a free agent `teamName` reads as the club that released them.
+**Response:** `Array<Player & { freeAgent: boolean; fee: number; teamName: string; teamReputation: number; saleEligible: boolean; saleBlockReason: string | null }>`. `fee` is `0` for a free agent and `marketValue` otherwise; for a free agent `teamName` reads as the club that released them. Contracted players expose whether their club can sell them while retaining the universal squad floors.
 
-**Notes:** returns everyone matching when `query` is empty. This is the data source for the Transfers page — which does not yet read `freeAgent`/`fee`, so a free agent is listed at a fee of 0 but still charged `marketValue` by `POST /api/transfers`. See [transfers.md](../functional/transfers.md#transfer-market-search).
+**Notes:** returns everyone matching when `query` is empty. This is the data source for the Transfers page: free agents open contract talks, while a contracted player with `saleEligible: false` remains visible with a disabled action and `saleBlockReason`. See [transfers.md](../functional/transfers.md#transfer-market-search).
 
 ---
 
@@ -719,12 +722,13 @@ Executes a sale, a purchase, or a free-agent signing.
 All three settle through `settleTransfer()` in `server/core/market.ts`, which moves the player, posts the ledger pair, applies the fan reaction and writes the news item in one transaction. Every response carries `fanConfidence` — the meter's new value when the move was notable enough to move it, `null` otherwise.
 
 #### Sell flow
-1. Finds eligible AI buyer teams: not the seller's team, not the player's team, `bankBalance > marketValue`.
-2. Scores each candidate by `skillGap` (|team position avg skill − player skillLevel|).
-3. Prefers buyers with `skillGap ≤ 8`; falls back to the 5 closest-fit teams.
-4. Picks a random buyer from the pool.
-5. Computes `transferValue = marketValue × (1 + premium)` where premium is 5–50% based on the buyer's relative strength.
-6. Settles: move player, ledger pair, `marketValue` raised to the fee, fan reaction, news.
+1. Verifies the player belongs to the manager's active squad and can leave without breaching a squad floor.
+2. Finds eligible AI buyer teams: not the seller's team, not the player's team, `bankBalance > marketValue`.
+3. Scores each candidate by `skillGap` (|team position avg skill − player skillLevel|).
+4. Prefers buyers with `skillGap ≤ 8`; falls back to the 5 closest-fit teams.
+5. Picks a random buyer from the pool.
+6. Computes `transferValue = marketValue × (1 + premium)` where premium is 5–50% based on the buyer's relative strength.
+7. Settles: rechecks the squad floor transactionally, moves the player, posts the ledger pair, raises `marketValue` to the fee, applies the fan reaction, and writes the news.
 
 **Sell response:**
 ```json
@@ -734,7 +738,8 @@ All three settle through `settleTransfer()` in `server/core/market.ts`, which mo
 #### Buy flow
 1. Verifies the player is not already on the player's team, and is not a free agent (`400` — sign him on terms instead).
 2. Checks `buyerTeam.bankBalance >= player.marketValue`.
-3. Settles at current `marketValue` (no premium on buys). The player keeps his existing wage and contract.
+3. Verifies the AI selling club can release the player while retaining every squad floor.
+4. Settles at current `marketValue` (no premium on buys). The player keeps his existing wage and contract.
 
 **Buy response:**
 ```json
@@ -758,18 +763,18 @@ Requires `wage` and `seasons`, judged by `evaluateOffer()` — the same demand c
 No fee changes hands and no ledger row is written; `free_agent` clears and the agreed terms are stored.
 
 **Errors:**
-- `400` — invalid action, player already on your team, insufficient funds, retired player, or a free/contracted mismatch for the action used
+- `400` — invalid action, player already on your team, insufficient funds, retired player, a free/contracted mismatch, an invalid selling club, or a squad-floor breach
 - `403` — the save is dismissed, or **the club is under a transfer embargo** (`game.insolvency_stage >= 2`) and the action is `buy` or `sign`
 - `404` — player or team not found
 
-**Selling is never blocked**, embargo or not. It is how a club gets out of one.
+An embargo never blocks selling because it is how a club gets out of debt, but the universal squad floors still do. Every contracted-player transfer must leave the selling club with at least 16 active players, 2 goalkeepers, 5 defenders, 5 midfielders, and 3 attackers.
 
 ---
 
 ### `GET /api/transfers/offers`
 Bids currently on the table for the manager's players.
 
-**Response:** `Array<{ id, amount, round, roundsRemaining, fromTeamName, fromTeamReputation, premiumPercent, player }>`, newest first. `roundsRemaining` counts down to the bid lapsing; `premiumPercent` is how far the fee sits above (or below) the player's valuation. Bids whose player has since retired or moved on are filtered out.
+**Response:** `Array<{ id, amount, round, roundsRemaining, fromTeamName, fromTeamReputation, premiumPercent, saleEligible, saleBlockReason, player }>`, newest first. `roundsRemaining` counts down to the bid lapsing; `premiumPercent` is how far the fee sits above (or below) the player's valuation. Bids whose player has since retired or moved on are filtered out. A bid that became unsafe after another departure remains visible but cannot be accepted.
 
 Returns `[]` when there is no save.
 
@@ -787,7 +792,7 @@ Accepts or rejects a bid.
 
 Accepting settles through the same `settleTransfer()` a manual sale uses, sets the player's `market_value` to the fee, and expires every other pending bid for him.
 
-**Errors:** `400` on a missing `offerId` or invalid action; `403` on a dismissed save; `404` if the bid is no longer pending — which is also what a second answer to the same bid gets.
+**Errors:** `400` on a missing `offerId`, invalid action, or squad-floor breach; `403` on a dismissed save; `404` if the bid is no longer pending or is not addressed to the manager's club — which is also what a second answer to the same bid gets.
 
 See [transfers.md § Offers for Your Players](../functional/transfers.md#offers-for-your-players) for how bids are generated.
 

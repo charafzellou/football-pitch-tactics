@@ -46,6 +46,8 @@ Dashboard: club status, next fixture, and the lineup builder.
 - Changing formation clears the XI, so it now asks first via `AppConfirmModal` (with undo) rather than doing it silently.
 - Selecting a player is **silent on success** — the marker appearing is the feedback. Only a *blocked* selection raises a toast. The old build fired a toast on every single tap.
 
+The builder hydrates only when both `useGameContext().team` and `GET /api/tactics` have resolved. It restores `teams.tactics` and `teams.lineup` together, falling back to `DEFAULT_TACTIC_NAME` only when the saved tactic is absent or unknown. After each successful team-sheet save, it refreshes the keyed `game-context` cache before navigating, preventing a later Dashboard mount from restoring a stale 4-4-2 around the saved XI.
+
 **Readiness checklist** — the "Go to Matchday" button states exactly what is missing ("Pick 1 more defender") instead of just being disabled. When the squad cannot legally fill *any* formation — every one needs a goalkeeper, so all keepers injured is a permanent lockout — a **Field an emergency XI** button appears instead and hands selection to `autoSelectLineup()`. See [tactics.md](../functional/tactics.md#selection-state).
 
 **Squad table** — position tabs, search, availability/fitness filters and sort, via `useSquadFilters`.
@@ -72,7 +74,7 @@ Player's club emphasised on both sides; home/away marker; the next fixture is hi
 ### `/game/standings` — `pages/game/standings.vue`
 League table.
 
-The player's own row is **highlighted** (previously indistinguishable from the other nineteen). Zone banding for champion / European places / relegation with a legend, a **form column**, points-behind-leader, medal icons for the top three and a gold treatment for the leader.
+The player's own row is **highlighted** (previously indistinguishable from the other nineteen). Zone banding for champion / European places / relegation with a legend, a **form column**, points-behind-leader, medal icons for the top three and a gold treatment for the leader. Each row's `teamId` and last-five `form` come directly from `GET /api/standings`; the page does not use the player-scoped schedule or infer team ids from names.
 
 ---
 
@@ -167,7 +169,7 @@ The clock uses `useIntervalFn` at `1000 / speed` ms, so the **playback speed con
 | `matchday/EventFeed.vue` | Commentary, graded by `eventWeight()` so goals are hero rows and routine play recedes; filter chips carry live counts |
 | `matchday/LineupPanel.vue` | One side's live XI and bench with inline goal/card/sub/injury markers |
 | `matchday/StatsPanel.vue` | Opposing-bar statistics, territory share and a momentum sparkline |
-| `matchday/GoalOverlay.vue` | Full-screen GOAL! moment with confetti (dynamically imported) |
+| `matchday/GoalOverlay.vue` | Full-screen GOAL! moment with confetti (dynamically imported); its score is the `applyEvents()` snapshot immediately after that goal |
 | `MatchReport.vue` | **Revived.** Was orphaned dead code; now the full-time report — verdict, scorers, statistics, key moments and player of the match |
 | `MatchTacticsPanel.vue` | The pause / half-time / injury surface — see below |
 | `Sidebar.vue` | Top navigation with sliding active pill, club context strip, mute and theme toggles |
